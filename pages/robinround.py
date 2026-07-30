@@ -281,12 +281,12 @@ def show_page():
     st.title('Gerador de Combates - Robin Round Individual')
 
     st.markdown('''
-    Esta ferramenta automatiza a criação de planilhas de combates a partir de uma planilha de resultados bruta.
+    Esta ferramenta automatiza a criação de planilhas de combates a partir de um arquivo de resultados brutos.
 
     **Instruções:**
     1. Preencha o nome da **Etapa** e o **Local da Prova**.
     2. Faça o upload do arquivo de **Resultados da Prova** (.txt, .csv ou .xlsx).
-    3. O arquivo de distribuição de grupos (`DistGrupos.xlsx`) será carregado automaticamente.
+    3. A planilha de distribuição de grupos (`DistGrupos.xlsx`) é carregada automaticamente do diretório do app.
     4. Clique em **Gerar Combates**.
     5. Aguarde o processamento e faça o download dos arquivos gerados.
     ''')
@@ -296,7 +296,7 @@ def show_page():
     local_input = st.text_input('Local da Prova', 'Mairiporã')
 
     st.header('2. Upload de Arquivos')
-    uploaded_file = st.file_uploader('Carregue a planilha de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
+    uploaded_file = st.file_uploader('Carregue o arquivo de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
 
     if st.button('Gerar Combates'):
         if uploaded_file is not None:
