@@ -292,14 +292,16 @@ def show_page():
     ''')
 
     st.header('1. Informações da Prova')
-    etapa_input = st.text_input('Nome da Etapa', '7º Outdoor FPAF - 4º Robin Round Individual')
-    local_input = st.text_input('Local da Prova', 'Mairiporã')
+    etapa_input = st.text_input('Nome da Etapa', '')
+    local_input = st.text_input('Local da Prova', '')
 
     st.header('2. Upload de Arquivos')
     uploaded_file = st.file_uploader('Carregue o arquivo de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
 
     if st.button('Gerar Combates'):
-        if uploaded_file is not None:
+        if not etapa_input or not local_input:
+            st.warning('Preencha o nome da etapa e o local da prova antes de gerar os combates.')
+        elif uploaded_file is not None:
             try:
                 with st.spinner('Processando... Por favor, aguarde.'):
                     df_prova = load_input_df(uploaded_file)
@@ -340,6 +342,8 @@ def show_page():
                         file_name='eliminados.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
+                else:
+                    st.info('Não há eliminados.')
 
             except FileNotFoundError as e:
                 st.error(str(e))
