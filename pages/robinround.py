@@ -1,188 +1,350 @@
+import io
+import math
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
-import io
+
+def to_excel(dfs, multi_sheet=False):
+    """
+    Converts a pandas DataFrame (or a dictionary of DataFrames for multi-sheet)
+    into an in-memory Excel file (bytes).
+    """
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        if multi_sheet:
+            for sheet_name, df in dfs.items():
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        else:
+            dfs.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
+
+
+def load_dist_grupos():
+    path = Path(__file__).resolve().parents[1] / 'DistGrupos.xlsx'
+    if not path.exists():
+        raise FileNotFoundError(f'Arquivo de distribuição de grupos não encontrado: {path}')
+    df = pd.read_excel(path, index_col=0)
+    df.index = pd.to_numeric(df.index, errors='coerce').astype('Int64')
+    return df
+
+
+def load_categoria_map():
+    path = Path(__file__).resolve().parents[1] / 'DePara Categorias.xlsx'
+    if not path.exists():
+        raise FileNotFoundError(f'Arquivo de mapeamento de categorias não encontrado: {path}')
+    return pd.read_excel(path)
+
+
+def load_input_df(uploaded_file):
+    filename = getattr(uploaded_file, 'name', '')
+    if filename.lower().endswith(('.txt', '.csv')):
+        return pd.read_csv(uploaded_file, sep=';', dtype=str, engine='python')
+    return pd.read_excel(uploaded_file, dtype=str)
+
+
+def normalize_input(df, categoria_map):
+    df = df.copy()
+    # Build NomeCompleto from FamilyName + GivenName
+    df['FamilyName'] = df.get('FamilyName', '').fillna('')
+    df['GivenName'] = df.get('GivenName', '').fillna('')
+    df['NomeCompleto'] = (df['FamilyName'].astype(str).str.strip() + ' ' + df['GivenName'].astype(str).str.strip()).str.strip()
+
+    df['Categoria Quali'] = (
+        df.get('Division', '').fillna('').astype(str).str.strip()
+        + df.get('Class', '').fillna('').astype(str).str.strip()
+    ).str.strip()
+
+    df = df.rename(columns={'Noc': 'Sigla', 'Country': 'Clube'})
+
+    for col in ['Score', '10+X', 'X']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(',', '.', regex=False).str.strip(),
+                errors='coerce'
+            ).fillna(0).astype(int)
+        else:
+            df[col] = 0
+
+    categoria_lookup = categoria_map.set_index('Categoria Quali')['Categoria Combates']
+    df['Categoria Combates'] = df['Categoria Quali'].map(categoria_lookup).fillna(df['Categoria Quali'])
+
+    if 'WaID' not in df.columns:
+        df['WaID'] = df.get('WaID', pd.NA)
+
+    df['Clube'] = df.get('Clube', '').fillna('')
+    df['Sigla'] = df.get('Sigla', '').fillna('')
+
+    return df
+
+
+def calculate_rank(df):
+    df = df.copy()
+    df = df.sort_values(
+        by=['Categoria Combates', 'Score', '10+X', 'X', 'NomeCompleto'],
+        ascending=[True, False, False, False, True],
+        kind='mergesort'
+    )
+    df['Rank'] = df.groupby('Categoria Combates').cumcount() + 1
+    return df
+
+
+def processar_combates(df, df_dist_grupos, etapa, local_da_prova):
+    """
+    Core logic to process the combat data.
+    Takes dataframes and user inputs, returns three dataframes for output.
+    """
+    df = df.copy()
+    df = df[df['NomeCompleto'].astype(str).str.strip() != '']
+    df = df[df['Categoria Combates'].astype(str).str.strip() != '']
+
+    tabelas_division = {}
+    for categoria_combate, data in df.groupby('Categoria Combates'):
+        tabelas_division[categoria_combate] = data.copy()
+
+    tabela_eliminados = pd.DataFrame()
+    combates_geral_df = pd.DataFrame()
+    final_grupos_tabelas = {}
+
+    for categoria_combate, tabela in tabelas_division.items():
+        num_pessoas = len(tabela)
+        if num_pessoas == 0:
+            continue
+
+        valid_counts = [c for c in df_dist_grupos.columns if pd.notna(c)]
+        valid_counts = sorted(int(c) for c in valid_counts)
+        lookup_count = num_pessoas
+        if lookup_count not in valid_counts:
+            lower_counts = [c for c in valid_counts if c <= lookup_count]
+            if lower_counts:
+                lookup_count = lower_counts[-1]
+            else:
+                lookup_count = valid_counts[0]
+
+        max_rank = int(df_dist_grupos.index.max())
+        valores_grupo = []
+        for _, row in tabela.iterrows():
+            rank = int(row['Rank']) if pd.notna(row['Rank']) else None
+            if rank is not None:
+                if rank in df_dist_grupos.index:
+                    valor_grupo = df_dist_grupos.at[rank, lookup_count]
+                    valores_grupo.append(int(valor_grupo))
+                elif rank > max_rank:
+                    valores_grupo.append(math.ceil(rank / 4))
+                else:
+                    valores_grupo.append(99)
+            else:
+                valores_grupo.append(99)
+
+        tabela['grupo'] = valores_grupo
+        tabela['pos_grupo'] = tabela.groupby('grupo').cumcount() + 1
+
+        eliminados = tabela[tabela['grupo'] == 99]
+        tabela_eliminados = pd.concat([tabela_eliminados, eliminados], ignore_index=True)
+
+        tabela = tabela[tabela['grupo'] != 99]
+        if tabela.empty:
+            continue
+
+        grupos_faltantes = tabela['grupo'].value_counts()
+        grupos_completar = grupos_faltantes[grupos_faltantes < 4].index
+
+        for grupo in grupos_completar:
+            num_linhas_grupo = len(tabela[tabela['grupo'] == grupo])
+            num_linhas_preencher = 4 - num_linhas_grupo
+
+            for i in range(num_linhas_preencher):
+                posicao_grupo = num_linhas_grupo + 1 + i
+                linha_preenchimento = {
+                    'WaID': 0,
+                    'Rank': 0,
+                    'NomeCompleto': f'BYE {grupo}{posicao_grupo}',
+                    'Clube': f'BYE {grupo}{posicao_grupo}',
+                    'Sigla': '',
+                    'Score': 0,
+                    '10+X': 0,
+                    'X': 0,
+                    'Categoria Quali': tabela['Categoria Quali'].iloc[0],
+                    'Categoria Combates': categoria_combate,
+                    'grupo': grupo,
+                    'pos_grupo': posicao_grupo,
+                }
+                tabela = pd.concat([tabela, pd.DataFrame([linha_preenchimento])], ignore_index=True)
+
+        tabela.sort_values(by=['grupo', 'pos_grupo'], inplace=True)
+        tabela.reset_index(drop=True, inplace=True)
+        final_grupos_tabelas[categoria_combate] = tabela
+
+        combates_divisao_df = pd.DataFrame()
+        for _, grupo_df in tabela.groupby('grupo'):
+            grupo_df = grupo_df.reset_index(drop=True)
+            combates_data = []
+
+            combates_data.append({
+                'match': 'MATCH 1',
+                'genero': categoria_combate,
+                'GRUPO': f'GRUPO {grupo_df.iloc[0]["grupo"]}',
+                'nome a': grupo_df.iloc[0]['NomeCompleto'],
+                'clube a': grupo_df.iloc[0]['Clube'],
+                'rank a': grupo_df.iloc[0]['Rank'],
+                'nome b': grupo_df.iloc[3]['NomeCompleto'],
+                'clube b': grupo_df.iloc[3]['Clube'],
+                'rank b': grupo_df.iloc[3]['Rank'],
+                'ETAPA': etapa,
+                'LOCAL': local_da_prova,
+            })
+            combates_data.append({
+                'match': 'MATCH 1',
+                'genero': categoria_combate,
+                'GRUPO': f'GRUPO {grupo_df.iloc[1]["grupo"]}',
+                'nome a': grupo_df.iloc[1]['NomeCompleto'],
+                'clube a': grupo_df.iloc[1]['Clube'],
+                'rank a': grupo_df.iloc[1]['Rank'],
+                'nome b': grupo_df.iloc[2]['NomeCompleto'],
+                'clube b': grupo_df.iloc[2]['Clube'],
+                'rank b': grupo_df.iloc[2]['Rank'],
+                'ETAPA': etapa,
+                'LOCAL': local_da_prova,
+            })
+            combates_data.append({
+                'match': 'MATCH 2',
+                'genero': categoria_combate,
+                'GRUPO': f'GRUPO {grupo_df.iloc[0]["grupo"]}',
+                'nome a': grupo_df.iloc[0]['NomeCompleto'],
+                'clube a': grupo_df.iloc[0]['Clube'],
+                'rank a': grupo_df.iloc[0]['Rank'],
+                'nome b': grupo_df.iloc[2]['NomeCompleto'],
+                'clube b': grupo_df.iloc[2]['Clube'],
+                'rank b': grupo_df.iloc[2]['Rank'],
+                'ETAPA': etapa,
+                'LOCAL': local_da_prova,
+            })
+            combates_data.append({
+                'match': 'MATCH 2',
+                'genero': categoria_combate,
+                'GRUPO': f'GRUPO {grupo_df.iloc[1]["grupo"]}',
+                'nome a': grupo_df.iloc[1]['NomeCompleto'],
+                'clube a': grupo_df.iloc[1]['Clube'],
+                'rank a': grupo_df.iloc[1]['Rank'],
+                'nome b': grupo_df.iloc[3]['NomeCompleto'],
+                'clube b': grupo_df.iloc[3]['Clube'],
+                'rank b': grupo_df.iloc[3]['Rank'],
+                'ETAPA': etapa,
+                'LOCAL': local_da_prova,
+            })
+            combates_data.append({
+                'match': 'MATCH 3',
+                'genero': categoria_combate,
+                'GRUPO': f'GRUPO {grupo_df.iloc[0]["grupo"]}',
+                'nome a': grupo_df.iloc[0]['NomeCompleto'],
+                'clube a': grupo_df.iloc[0]['Clube'],
+                'rank a': grupo_df.iloc[0]['Rank'],
+                'nome b': grupo_df.iloc[1]['NomeCompleto'],
+                'clube b': grupo_df.iloc[1]['Clube'],
+                'rank b': grupo_df.iloc[1]['Rank'],
+                'ETAPA': etapa,
+                'LOCAL': local_da_prova,
+            })
+            combates_data.append({
+                'match': 'MATCH 3',
+                'genero': categoria_combate,
+                'GRUPO': f'GRUPO {grupo_df.iloc[2]["grupo"]}',
+                'nome a': grupo_df.iloc[2]['NomeCompleto'],
+                'clube a': grupo_df.iloc[2]['Clube'],
+                'rank a': grupo_df.iloc[2]['Rank'],
+                'nome b': grupo_df.iloc[3]['NomeCompleto'],
+                'clube b': grupo_df.iloc[3]['Clube'],
+                'rank b': grupo_df.iloc[3]['Rank'],
+                'ETAPA': etapa,
+                'LOCAL': local_da_prova,
+            })
+
+            combates_divisao_df = pd.concat([combates_divisao_df, pd.DataFrame(combates_data)], ignore_index=True)
+
+        combates_geral_df = pd.concat([combates_geral_df, combates_divisao_df], ignore_index=True)
+
+    combates_para_salvar = {}
+    if not combates_geral_df.empty:
+        combates_sem_bye = combates_geral_df[~(
+            combates_geral_df['nome a'].str.contains('BYE', na=False)
+            & combates_geral_df['nome b'].str.contains('BYE', na=False)
+        )]
+        combates_para_salvar['Total'] = combates_sem_bye
+        for categoria in combates_sem_bye['genero'].unique():
+            combates_para_salvar[categoria] = combates_sem_bye[combates_sem_bye['genero'] == categoria]
+
+    return final_grupos_tabelas, combates_para_salvar, tabela_eliminados
+
 
 def show_page():
-    # Helper function to convert dataframe to excel bytes
-    def to_excel(dfs, multi_sheet=False):
-        """
-        Converts a pandas DataFrame (or a dictionary of DataFrames for multi-sheet)
-        into an in-memory Excel file (bytes).
-        """
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            if multi_sheet:
-                for sheet_name, df in dfs.items():
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            else:
-                dfs.to_excel(writer, index=False, sheet_name='Sheet1')
-        processed_data = output.getvalue()
-        return processed_data
-
-    def processar_combates(df, df_dist_grupos, etapa, local_da_prova):
-        """
-        Core logic from the Jupyter Notebook to process the combat data.
-        Takes dataframes and user inputs, returns three dataframes for output.
-        """
-        # 1 - Retirar todas as linhas cuja coluna "total" seja igual a zero
-        df = df[df['total'] != 0]
-
-        # 2 - Separar em tabelas diferentes para cada código DivisionClass
-        tabelas_division = {}
-        for division_class, data in df.groupby('DivisionClass'):
-            tabelas_division[division_class] = data.copy()
-
-        tabela_eliminados = pd.DataFrame()
-        combates_geral_df = pd.DataFrame()
-        
-        final_grupos_tabelas = {}
-
-        for division_class, tabela in tabelas_division.items():
-            num_pessoas = len(tabela)
-            if num_pessoas == 0:
-                continue
-
-            valores_grupo = []
-            for _, row in tabela.iterrows():
-                rank = row['Rank']
-                if num_pessoas in df_dist_grupos.columns and rank in df_dist_grupos.index:
-                    valor_grupo = df_dist_grupos[num_pessoas][rank]
-                    valores_grupo.append(valor_grupo)
-                else:
-                    valores_grupo.append(29) # Default to eliminated if not in dist_grupos
-
-            tabela['grupo'] = valores_grupo
-            tabela['pos_grupo'] = tabela.groupby('grupo').cumcount() + 1
-            
-            eliminados = tabela[tabela['grupo'] == 29]
-            tabela_eliminados = pd.concat([tabela_eliminados, eliminados])
-            
-            tabela = tabela[tabela['grupo'] != 29]
-            if tabela.empty:
-                continue
-
-            grupos_faltantes = tabela['grupo'].value_counts()
-            grupos_completar = grupos_faltantes[grupos_faltantes < 4].index
-
-            for grupo in grupos_completar:
-                num_linhas_grupo = len(tabela[tabela['grupo'] == grupo])
-                num_linhas_preencher = 4 - num_linhas_grupo
-                
-                for i in range(num_linhas_preencher):
-                    posicao_grupo = num_linhas_grupo + 1 + i
-                    linha_preenchimento = {
-                        'prova': tabela['prova'].iloc[0], 'DivisionClass': division_class,
-                        'WaID': 0, 'Rank': 0, 'NomeCompleto': f'BYE {grupo}{posicao_grupo}',
-                        'local_prova': f'BYE {grupo}{posicao_grupo}', 'D2_Score': grupo, 'D1_Score': grupo,
-                        'total': grupo * 2, 'Score_10': 0, 'Score_9': 0, '10+X': 0, 'X': 0,
-                        'grupo': grupo, 'pos_grupo': posicao_grupo
-                    }
-                    tabela = pd.concat([tabela, pd.DataFrame([linha_preenchimento])], ignore_index=True)
-
-            tabela.sort_values(by=['grupo', 'pos_grupo'], inplace=True)
-            tabela.reset_index(drop=True, inplace=True)
-            final_grupos_tabelas[division_class] = tabela
-
-            combates_divisao_df = pd.DataFrame()
-            for _, grupo_df in tabela.groupby('grupo'):
-                grupo_df.reset_index(drop=True, inplace=True)
-                combates_data = []
-                
-                # MATCH 1
-                combates_data.append({'match': 'MATCH 1', 'genero': division_class, 'GRUPO': f'GRUPO {grupo_df.iloc[0]["grupo"]}', 'nome a': grupo_df.iloc[0]['NomeCompleto'], 'clube a': grupo_df.iloc[0]['local_prova'], 'rank a': grupo_df.iloc[0]['Rank'], 'nome b': grupo_df.iloc[3]['NomeCompleto'], 'clube b': grupo_df.iloc[3]['local_prova'], 'rank b': grupo_df.iloc[3]['Rank'], 'ETAPA': etapa, 'LOCAL': local_da_prova})
-                combates_data.append({'match': 'MATCH 1', 'genero': division_class, 'GRUPO': f'GRUPO {grupo_df.iloc[1]["grupo"]}', 'nome a': grupo_df.iloc[1]['NomeCompleto'], 'clube a': grupo_df.iloc[1]['local_prova'], 'rank a': grupo_df.iloc[1]['Rank'], 'nome b': grupo_df.iloc[2]['NomeCompleto'], 'clube b': grupo_df.iloc[2]['local_prova'], 'rank b': grupo_df.iloc[2]['Rank'], 'ETAPA': etapa, 'LOCAL': local_da_prova})
-                # MATCH 2
-                combates_data.append({'match': 'MATCH 2', 'genero': division_class, 'GRUPO': f'GRUPO {grupo_df.iloc[0]["grupo"]}', 'nome a': grupo_df.iloc[0]['NomeCompleto'], 'clube a': grupo_df.iloc[0]['local_prova'], 'rank a': grupo_df.iloc[0]['Rank'], 'nome b': grupo_df.iloc[2]['NomeCompleto'], 'clube b': grupo_df.iloc[2]['local_prova'], 'rank b': grupo_df.iloc[2]['Rank'], 'ETAPA': etapa, 'LOCAL': local_da_prova})
-                combates_data.append({'match': 'MATCH 2', 'genero': division_class, 'GRUPO': f'GRUPO {grupo_df.iloc[1]["grupo"]}', 'nome a': grupo_df.iloc[1]['NomeCompleto'], 'clube a': grupo_df.iloc[1]['local_prova'], 'rank a': grupo_df.iloc[1]['Rank'], 'nome b': grupo_df.iloc[3]['NomeCompleto'], 'clube b': grupo_df.iloc[3]['local_prova'], 'rank b': grupo_df.iloc[3]['Rank'], 'ETAPA': etapa, 'LOCAL': local_da_prova})
-                # MATCH 3
-                combates_data.append({'match': 'MATCH 3', 'genero': division_class, 'GRUPO': f'GRUPO {grupo_df.iloc[0]["grupo"]}', 'nome a': grupo_df.iloc[0]['NomeCompleto'], 'clube a': grupo_df.iloc[0]['local_prova'], 'rank a': grupo_df.iloc[0]['Rank'], 'nome b': grupo_df.iloc[1]['NomeCompleto'], 'clube b': grupo_df.iloc[1]['local_prova'], 'rank b': grupo_df.iloc[1]['Rank'], 'ETAPA': etapa, 'LOCAL': local_da_prova})
-                combates_data.append({'match': 'MATCH 3', 'genero': division_class, 'GRUPO': f'GRUPO {grupo_df.iloc[2]["grupo"]}', 'nome a': grupo_df.iloc[2]['NomeCompleto'], 'clube a': grupo_df.iloc[2]['local_prova'], 'rank a': grupo_df.iloc[2]['Rank'], 'nome b': grupo_df.iloc[3]['NomeCompleto'], 'clube b': grupo_df.iloc[3]['local_prova'], 'rank b': grupo_df.iloc[3]['Rank'], 'ETAPA': etapa, 'LOCAL': local_da_prova})
-
-                combates_divisao_df = pd.concat([combates_divisao_df, pd.DataFrame(combates_data)], ignore_index=True)
-            
-            combates_geral_df = pd.concat([combates_geral_df, combates_divisao_df], ignore_index=True)
-
-        # Prepare combat sheets for Excel output
-        combates_para_salvar = {}
-        if not combates_geral_df.empty:
-            # Filter out BYE matches
-            combates_sem_bye = combates_geral_df[~combates_geral_df['nome a'].str.contains("BYE", na=False)]
-            combates_sem_bye = combates_sem_bye[~combates_sem_bye['nome b'].str.contains("BYE", na=False)]
-            
-            combates_para_salvar['Total'] = combates_sem_bye
-            for division in combates_sem_bye['genero'].unique():
-                combates_para_salvar[division] = combates_sem_bye[combates_sem_bye['genero'] == division]
-
-        return final_grupos_tabelas, combates_para_salvar, tabela_eliminados
-
     # --- Streamlit UI ---
-    st.set_page_config(layout="centered")
-    st.title("Gerador de Combates - Robin Round Individual")
+    st.title('Gerador de Combates - Robin Round Individual')
 
-    st.markdown("""
-    Esta ferramenta automatiza a criação de planilhas de combates a partir de uma planilha de resultados.
+    st.markdown('''
+    Esta ferramenta automatiza a criação de planilhas de combates a partir de uma planilha de resultados bruta.
 
     **Instruções:**
-    1.  Preencha o nome da **Etapa** e o **Local da Prova**.
-    2.  Faça o upload da planilha de **Resultados da Prova** (formato `.xlsx`).
-    3.  Faça o upload da planilha de **Distribuição de Grupos** (`DistGrupos.xlsx`).
-    4.  Clique no botão **"Gerar Combates"**.
-    5.  Aguarde o processamento e faça o download dos arquivos gerados.
-    """)
+    1. Preencha o nome da **Etapa** e o **Local da Prova**.
+    2. Faça o upload do arquivo de **Resultados da Prova** (.txt, .csv ou .xlsx).
+    3. O arquivo de distribuição de grupos (`DistGrupos.xlsx`) será carregado automaticamente.
+    4. Clique em **Gerar Combates**.
+    5. Aguarde o processamento e faça o download dos arquivos gerados.
+    ''')
 
-    st.header("1. Informações da Prova")
-    etapa_input = st.text_input("Nome da Etapa", "7º Outdoor FPAF - 4º Robin Round Individual")
-    local_input = st.text_input("Local da Prova", "Mairiporã")
+    st.header('1. Informações da Prova')
+    etapa_input = st.text_input('Nome da Etapa', '7º Outdoor FPAF - 4º Robin Round Individual')
+    local_input = st.text_input('Local da Prova', 'Mairiporã')
 
-    st.header("2. Upload de Arquivos")
-    uploaded_file = st.file_uploader("Carregue a planilha de Resultados da Prova (.xlsx)", type=["xlsx"])
-    dist_grupos_file = st.file_uploader("Carregue a planilha de Distribuição de Grupos (`DistGrupos.xlsx`)", type=["xlsx"])
+    st.header('2. Upload de Arquivos')
+    uploaded_file = st.file_uploader('Carregue a planilha de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
 
-    if st.button("Gerar Combates"):
-        if uploaded_file is not None and dist_grupos_file is not None:
+    if st.button('Gerar Combates'):
+        if uploaded_file is not None:
             try:
                 with st.spinner('Processando... Por favor, aguarde.'):
-                    df_prova = pd.read_excel(uploaded_file)
-                    df_dist_grupos = pd.read_excel(dist_grupos_file, index_col=0)
+                    df_prova = load_input_df(uploaded_file)
+                    df_dist_grupos = load_dist_grupos()
+                    df_categoria_map = load_categoria_map()
+                    df_prova = normalize_input(df_prova, df_categoria_map)
+                    df_prova = calculate_rank(df_prova)
 
-                    # Process data
                     grupos_final, combates_final, eliminados_final = processar_combates(
                         df_prova, df_dist_grupos, etapa_input, local_input
                     )
 
-                st.success("Processamento concluído com sucesso!")
+                st.success('Processamento concluído com sucesso!')
 
-                # Convert dataframes to Excel bytes
                 if grupos_final:
                     grupos_xlsx = to_excel(grupos_final, multi_sheet=True)
                     st.download_button(
-                        label="⬇️ Baixar Planilha de Grupos",
+                        label='⬇️ Baixar Planilha de Grupos',
                         data=grupos_xlsx,
-                        file_name=f"{etapa_input}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        file_name=f'{etapa_input}.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
 
                 if combates_final:
                     combates_xlsx = to_excel(combates_final, multi_sheet=True)
                     st.download_button(
-                        label="⬇️ Baixar Planilha de Combates",
+                        label='⬇️ Baixar Planilha de Combates',
                         data=combates_xlsx,
-                        file_name=f"{etapa_input}_combates.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        file_name=f'{etapa_input}_combates.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
 
                 if not eliminados_final.empty:
                     eliminados_xlsx = to_excel(eliminados_final)
                     st.download_button(
-                        label="⬇️ Baixar Planilha de Eliminados",
+                        label='⬇️ Baixar Planilha de Eliminados',
                         data=eliminados_xlsx,
-                        file_name="eliminados.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        file_name='eliminados.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
 
+            except FileNotFoundError as e:
+                st.error(str(e))
             except Exception as e:
-                st.error(f"Ocorreu um erro durante o processamento: {e}")
-                st.warning("Verifique se as colunas das planilhas estão corretas e tente novamente.")
-
+                st.error(f'Ocorreu um erro durante o processamento: {e}')
+                st.warning('Verifique se o arquivo de resultados está no formato correto e tente novamente.')
         else:
-            st.warning("Por favor, faça o upload dos dois arquivos necessários antes de gerar os combates.")
+            st.warning('Por favor, faça o upload do arquivo de resultados antes de gerar os combates.')
