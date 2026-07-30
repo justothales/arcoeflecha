@@ -23,7 +23,7 @@ def show_inicio_page():
 # Define a estrutura de navegação
 pg = st.navigation([
     st.Page(show_inicio_page, title="Início", default=True, icon="🏠"),
-    st.Page(show_robin_round_page, title="Robin Round", icon="🎯")
+    st.Page(show_robin_round_page, title="Robin Round Individual", icon="🎯")
 ])
 
 # Executa a página selecionada
