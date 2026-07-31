@@ -463,6 +463,10 @@ def show_page():
         st.info(f'{len(selected_indexes)} atleta(s) selecionado(s) para a etapa de combates.')
         processar_clicked = st.button('Processar Combates', key='processar_combates_button')
 
+        grupos_final = None
+        combates_final = None
+        eliminados_final = None
+
         if processar_clicked:
             with st.spinner('Processando... Por favor, aguarde.'):
                 df_selecionados = df_prova.loc[selected_indexes].copy()
@@ -478,6 +482,10 @@ def show_page():
             st.session_state['eliminados_final'] = eliminados_final
             st.session_state['etapa_input'] = etapa_input
             st.session_state['processed'] = True
+
+        grupos_final = None
+        combates_final = None
+        eliminados_final = None
 
         if st.session_state.get('processed', False):
             grupos_final = st.session_state.get('grupos_final')
