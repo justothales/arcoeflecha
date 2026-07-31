@@ -4,6 +4,15 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import os
+import shutil
+import tempfile
+from docx import Document
+from PyPDF2 import PdfMerger
+try:
+    from docx2pdf import convert as docx2pdf_convert
+except Exception:
+    docx2pdf_convert = None
 
 def to_excel(dfs, multi_sheet=False):
     """
@@ -301,6 +310,85 @@ def processar_combates(df, df_dist_grupos, etapa, local_da_prova):
     return final_grupos_tabelas, combates_para_salvar, tabela_eliminados
 
 
+def _generate_docx_from_template(df: pd.DataFrame, modelo_path: str, out_docx_path: str, categoria_name: str):
+    """Create a docx file for a category by copying a template and appending a table with the dataframe rows."""
+    shutil.copy(modelo_path, out_docx_path)
+    doc = Document(out_docx_path)
+    # Add a heading with category name
+    doc.add_heading(str(categoria_name), level=2)
+    if df.empty:
+        doc.add_paragraph('Sem combates.')
+        doc.save(out_docx_path)
+        return out_docx_path
+
+    # Add a table with the dataframe contents
+    cols = list(df.columns)
+    table = doc.add_table(rows=1, cols=len(cols))
+    hdr_cells = table.rows[0].cells
+    for i, c in enumerate(cols):
+        hdr_cells[i].text = str(c)
+
+    for _, row in df.iterrows():
+        cells = table.add_row().cells
+        for i, c in enumerate(cols):
+            val = row[c]
+            cells[i].text = '' if pd.isna(val) else str(val)
+
+    doc.save(out_docx_path)
+    return out_docx_path
+
+
+def _convert_docx_to_pdf(docx_path: str, pdf_path: str):
+    """Convert a DOCX file to PDF using docx2pdf (Windows / Word)."""
+    if docx2pdf_convert is None:
+        raise RuntimeError('docx2pdf is not available. Please `pip install docx2pdf` and ensure Word is installed on Windows.')
+    # docx2pdf.convert accepts (input, output) where input can be file and output a folder or file
+    docx2pdf_convert(docx_path, pdf_path)
+    return pdf_path
+
+
+def generate_print_pdf_from_combates(combates_dict: dict, output_pdf_path: str, etapa_name: str):
+    """Generate per-category DOCX from templates and convert+merge into a single PDF.
+
+    combates_dict: dict of DataFrames keyed by category name (genero).
+    output_pdf_path: destination PDF full path.
+    etapa_name: used for output filenames.
+    Returns path to merged PDF.
+    """
+    base_dir = Path(__file__).resolve().parents[1]
+    template_soma = base_dir / 'Modelo Robin Round Individual - Soma.docx'
+    template_sets = base_dir / 'Modelo Robin Round Individual - Sets.docx'
+
+    if not template_soma.exists() or not template_sets.exists():
+        raise FileNotFoundError('Um ou ambos os modelos DOCX não foram encontrados no diretório do projeto.')
+
+    tmpdir = Path(tempfile.mkdtemp(prefix='robinround_print_'))
+    pdf_paths = []
+    try:
+        for genero, df in combates_dict.items():
+            if genero == 'Total':
+                continue
+            modelo_path = template_soma if str(genero).strip().upper().startswith('C') else template_sets
+            safe_name = "".join(c for c in str(genero) if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+            out_docx = tmpdir / f"{etapa_name}_{safe_name}.docx"
+            _generate_docx_from_template(df, str(modelo_path), str(out_docx), genero)
+            out_pdf = tmpdir / f"{etapa_name}_{safe_name}.pdf"
+            _convert_docx_to_pdf(str(out_docx), str(out_pdf))
+            pdf_paths.append(str(out_pdf))
+
+        # Merge PDFs
+        merger = PdfMerger()
+        for p in pdf_paths:
+            merger.append(p)
+        with open(output_pdf_path, 'wb') as f:
+            merger.write(f)
+        merger.close()
+        return output_pdf_path
+    finally:
+        # keep temp files for debugging; could remove them
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def show_page():
     # --- Streamlit UI ---
     st.title('Gerador de Combates - Robin Round Individual')
@@ -412,7 +500,7 @@ def show_page():
                 label='⬇️ Baixar Planilha de Grupos',
                 data=grupos_xlsx,
                 file_name=f'{etapa_input}_grupos.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
             )
 
         if combates_final:
@@ -423,6 +511,22 @@ def show_page():
                 file_name=f'{etapa_input}_combates.xlsx',
                 mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
             )
+
+            st.markdown('**Impressão:** Gere um PDF único com as páginas por categoria a partir dos modelos.')
+            if docx2pdf_convert is None:
+                st.warning('Conversão DOCX→PDF indisponível: instale `docx2pdf` e tenha o Word no Windows para gerar PDFs automaticamente.')
+            generate_pdf = st.button('Gerar PDFs para Impressão', key='gerar_pdfs_button')
+            if generate_pdf:
+                try:
+                    tmp_out_pdf = Path(tempfile.gettempdir()) / f"{etapa_input}_impressao.pdf"
+                    with st.spinner('Gerando arquivos DOCX e convertendo para PDF (pode demorar)...'):
+                        pdf_path = generate_print_pdf_from_combates(combates_final, str(tmp_out_pdf), etapa_input)
+                    with open(pdf_path, 'rb') as f:
+                        pdf_bytes = f.read()
+                    st.success('PDF de impressão gerado com sucesso.')
+                    st.download_button('⬇️ Baixar PDF para Impressão', data=pdf_bytes, file_name=f'{etapa_input}_impressao.pdf', mime='application/pdf')
+                except Exception as e:
+                    st.error(f'Falha ao gerar o PDF de impressão: {e}')
 
         if not eliminados_final.empty:
             eliminados_xlsx = to_excel(eliminados_final)
