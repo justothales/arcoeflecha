@@ -62,3 +62,22 @@ Após o processamento, a aplicação disponibiliza três arquivos Excel para dow
     streamlit run app.py
     ```
 5.  Uma nova aba será aberta no seu navegador com a aplicação em funcionamento.
+
+    ## Notas sobre impressão (DOCX → PDF)
+
+    - O projeto gera arquivos DOCX por categoria usando dois modelos e tenta converter esses DOCX para PDF para criar um único PDF de impressão.
+    - Conversão automática suportada por duas ferramentas (prioridade pela ordem):
+        1. `docx2pdf` — automatiza o Microsoft Word (Windows ou macOS). Requer Word instalado; instale com `pip install docx2pdf`.
+        2. `soffice` (LibreOffice) — modo headless (`soffice --headless --convert-to pdf`). Útil em servidores Linux onde o Word não está disponível.
+    - Se nenhuma dessas ferramentas estiver disponível, a aplicação exibirá um aviso e não conseguirá gerar o PDF de impressão automaticamente.
+
+    ## Arquivos que devem estar na raiz do projeto
+
+    Coloque os seguintes arquivos na mesma pasta onde está o `app.py` (raiz do projeto):
+
+    - `DistGrupos.xlsx`  — planilha de distribuição de grupos.
+    - `DePara Categorias.xlsx`  — mapeamento `Categoria Quali` → `Categoria Combates`.
+    - `Modelo Robin Round Individual - Soma.docx`  — template DOCX para categorias com soma.
+    - `Modelo Robin Round Individual - Sets.docx`  — template DOCX para categorias por sets.
+
+    Além disso, certifique-se de que o `requirements.txt` inclua as dependências listadas (já atualizado neste repositório).

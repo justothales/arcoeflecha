@@ -1,6 +1,10 @@
 streamlit
 pandas
+numpy
 openpyxl
 python-docx
 docx2pdf
 PyPDF2
+Pillow
+xlrd
+pywin32
