@@ -7,7 +7,10 @@ import streamlit as st
 import os
 import shutil
 import tempfile
-from docx import Document
+try:
+    from docx import Document
+except Exception:
+    Document = None
 from PyPDF2 import PdfMerger
 try:
     from docx2pdf import convert as docx2pdf_convert
@@ -312,6 +315,8 @@ def processar_combates(df, df_dist_grupos, etapa, local_da_prova):
 
 def _generate_docx_from_template(df: pd.DataFrame, modelo_path: str, out_docx_path: str, categoria_name: str):
     """Create a docx file for a category by copying a template and appending a table with the dataframe rows."""
+    if Document is None:
+        raise RuntimeError('python-docx não está instalado. Adicione `python-docx` em requirements.txt ou instale-o com `pip install python-docx`.')
     shutil.copy(modelo_path, out_docx_path)
     doc = Document(out_docx_path)
     # Add a heading with category name
