@@ -355,25 +355,31 @@ def show_page():
         selection_df = df_prova[['Target', 'Nome Completo', 'Categoria Quali', 'Sigla']].copy().reset_index(drop=False)
         selection_df = selection_df.rename(columns={'Target': 'Alvo'})
 
+        if 'athlete_selection_confirmed' not in st.session_state:
+            st.session_state['athlete_selection_confirmed'] = False
+
         with st.form('athlete_selection_form'):
-            header_cols = st.columns([1.0, 2.0, 4.0, 2.0, 1.2])
-            header_cols[0].write('Participa')
-            header_cols[1].write('Alvo')
-            header_cols[2].write('Nome Completo')
-            header_cols[3].write('Categoria Quali')
-            header_cols[4].write('Sigla')
+            header_cols = st.columns([1.0, 4.0, 2.0, 1.2, 2.0])
+            header_cols[0].write('Combate')
+            header_cols[1].write('Nome Completo')
+            header_cols[2].write('Categoria Quali')
+            header_cols[3].write('Sigla')
+            header_cols[4].write('Alvo')
 
             for _, row in selection_df.iterrows():
-                cols = st.columns([1.0, 2.0, 4.0, 2.0, 1.2])
+                cols = st.columns([1.0, 4.0, 2.0, 1.2, 2.0])
                 cols[0].checkbox('', value=True, key=f'sel_{uploaded_file.name}_{row["index"]}')
-                cols[1].write(row['Alvo'])
-                cols[2].write(row['Nome Completo'])
-                cols[3].write(row['Categoria Quali'])
-                cols[4].write(row['Sigla'])
+                cols[1].write(row['Nome Completo'])
+                cols[2].write(row['Categoria Quali'])
+                cols[3].write(row['Sigla'])
+                cols[4].write(row['Alvo'])
 
             submitted = st.form_submit_button('Confirmar seleção')
 
-        if not submitted:
+        if submitted:
+            st.session_state['athlete_selection_confirmed'] = True
+
+        if not st.session_state['athlete_selection_confirmed']:
             return
 
         selected_indexes = []
@@ -398,6 +404,7 @@ def show_page():
             )
 
         st.success('Processamento concluído com sucesso!')
+        st.session_state['athlete_selection_confirmed'] = False
 
         if grupos_final:
             grupos_xlsx = to_excel(grupos_final, multi_sheet=True)
