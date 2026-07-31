@@ -355,22 +355,30 @@ def show_page():
         selection_df = df_prova[['Target', 'Nome Completo', 'Categoria Quali', 'Sigla']].copy().reset_index(drop=False)
         selection_df = selection_df.rename(columns={'Target': 'Alvo'})
 
-        header_cols = st.columns([1.0, 2.0, 4.0, 2.0, 1.2])
-        header_cols[0].write('Participa')
-        header_cols[1].write('Alvo')
-        header_cols[2].write('Nome Completo')
-        header_cols[3].write('Categoria Quali')
-        header_cols[4].write('Sigla')
+        with st.form('athlete_selection_form'):
+            header_cols = st.columns([1.0, 2.0, 4.0, 2.0, 1.2])
+            header_cols[0].write('Participa')
+            header_cols[1].write('Alvo')
+            header_cols[2].write('Nome Completo')
+            header_cols[3].write('Categoria Quali')
+            header_cols[4].write('Sigla')
+
+            for _, row in selection_df.iterrows():
+                cols = st.columns([1.0, 2.0, 4.0, 2.0, 1.2])
+                cols[0].checkbox('', value=True, key=f'sel_{uploaded_file.name}_{row["index"]}')
+                cols[1].write(row['Alvo'])
+                cols[2].write(row['Nome Completo'])
+                cols[3].write(row['Categoria Quali'])
+                cols[4].write(row['Sigla'])
+
+            submitted = st.form_submit_button('Confirmar seleção')
+
+        if not submitted:
+            return
 
         selected_indexes = []
         for _, row in selection_df.iterrows():
-            cols = st.columns([1.0, 2.0, 4.0, 2.0, 1.2])
-            selected = cols[0].selectbox('', ['Sim', 'Não'], index=0, key=f'sel_{uploaded_file.name}_{row["index"]}')
-            cols[1].write(row['Alvo'])
-            cols[2].write(row['Nome Completo'])
-            cols[3].write(row['Categoria Quali'])
-            cols[4].write(row['Sigla'])
-            if selected == 'Sim':
+            if st.session_state.get(f'sel_{uploaded_file.name}_{row["index"]}', False):
                 selected_indexes.append(row['index'])
 
         if not selected_indexes:
@@ -378,7 +386,7 @@ def show_page():
             return
 
         st.info(f'{len(selected_indexes)} atleta(s) selecionado(s) para a etapa de combates.')
-        if not st.button('Processar Combates'):
+        if not st.button('Processar Combates', key='processar_combates_button'):
             return
 
         with st.spinner('Processando... Por favor, aguarde.'):
