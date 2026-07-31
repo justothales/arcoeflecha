@@ -1,10 +1,6 @@
 streamlit
 pandas
-numpy
 openpyxl
-python-docx
-docx2pdf
-PyPDF2
+fpdf
 Pillow
-xlrd
-# pywin32 removed: Windows-only package (not supported on Streamlit Cloud)
+# xlrd é opcional apenas se você precisar ler arquivos .xls antigos

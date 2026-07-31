@@ -1,83 +1,97 @@
 # Gerador de Combates para Competições de Arco e Flecha (Robin Round)
 
-Este projeto é uma ferramenta web desenvolvida para automatizar a criação de chaves de combate para torneios de arco e flecha que utilizam o formato *Robin Round Individual*. A aplicação foi migrada de um script Jupyter Notebook para uma interface web interativa e amigável usando a biblioteca Streamlit.
+Esta aplicação Streamlit gera os combates de um Robin Round Individual a partir dos resultados de uma fase qualificatória.
 
-## Entradas (Inputs)
+## O que o projeto faz
 
-A aplicação requer três tipos de entrada fornecidos pelo usuário através da interface web:
+* Carrega resultados de atletas em `.txt`, `.csv` ou `.xlsx`.
+* Normaliza dados e identifica categorias de combate com base em `DePara Categorias.xlsx`.
+* Calcula o rank por categoria e aloca atletas em grupos usando `DistGrupos.xlsx`.
+* Preenche grupos de 4 atletas com entradas `BYE` quando necessário.
+* Gera a agenda de combates por categoria.
+* Produz arquivos Excel e PDFs prontos para impressão.
 
-1.  **Informações da Prova:**
-    *   **Nome da Etapa:** Campo de texto para identificar o nome do torneio (ex: "7º Outdoor FPAF 2026 - 4º Robin Round Individual").
-    *   **Local da Prova:** Campo de texto para identificar onde a prova está sendo realizada (ex: "Mairiporã").
+## Entradas necessárias
 
-2.  **Planilha de Resultados da Prova (.xlsx):**
-    *   Um arquivo Excel contendo a classificação inicial dos atletas após uma rodada qualificatória.
-    *   **Colunas essenciais:** `total`, `DivisionClass` (categoria do atleta), `Rank` (classificação na categoria), `NomeCompleto` e `local_prova` (clube do atleta).
+### Upload do usuário
 
-3.  **Planilha de Distribuição de Grupos (.xlsx):**
-    *   Um arquivo Excel chamado `DistGrupos.xlsx` que funciona como uma matriz de mapeamento. Ele determina para qual grupo um atleta será alocado com base no número total de competidores na sua categoria e no seu `Rank` individual.
+A interface aceita um arquivo de resultados em um destes formatos:
 
-## Processamento
+* `.txt`
+* `.csv`
+* `.xlsx`
 
-O coração do script realiza uma série de manipulações nos dados para criar os grupos e os combates de forma justa e automática:
+O arquivo deve conter as informações dos atletas, incluindo pelo menos nome completo e categoria.
 
-1.  **Filtragem Inicial:** Atletas com pontuação total (`total`) igual a zero são removidos da lista.
-2.  **Separação por Categoria:** Os atletas são divididos em tabelas separadas, uma para cada categoria (`DivisionClass`).
-3.  **Alocação de Grupos:** Utilizando a planilha `DistGrupos.xlsx` como referência, o script atribui um número de grupo para cada atleta.
-4.  **Gestão de Eliminados:** Atletas que, devido ao seu ranking, não se encaixam nos grupos principais (marcados com o grupo "29" na planilha de distribuição) são movidos para uma lista de "eliminados".
-5.  **Preenchimento de Grupos (BYEs):** O script verifica os grupos que ficaram com menos de 4 competidores e adiciona automaticamente entradas "BYE" para completá-los, garantindo que cada grupo tenha 4 posições.
-6.  **Geração dos Combates:** Por fim, para cada grupo completo, o sistema gera as três rodadas de confrontos (MATCH 1, 2 e 3), pareando os atletas de acordo com a formatação padrão do Robin Round.
+### Arquivos obrigatórios na raiz do projeto
 
-## Saídas (Outputs)
+Coloque estes arquivos junto ao `app.py`:
 
-Após o processamento, a aplicação disponibiliza três arquivos Excel para download:
+* `DistGrupos.xlsx` — distribuição de grupos por número de atletas e rank.
+* `DePara Categorias.xlsx` — mapeamento de `Categoria Quali` para `Categoria Combates`.
+* `Fundo Robin Round Individual - Sets.png` — imagem de fundo usada para categorias de sets.
+* `Fundo Robin Round Individual - Soma.png` — imagem de fundo usada para categorias de soma.
 
-1.  **Planilha de Grupos (`<nome_da_etapa>.xlsx`):**
-    *   Um arquivo Excel com múltiplas abas, onde cada aba corresponde a uma categoria (`DivisionClass`).
-    *   Conteúdo: A composição final de cada grupo, incluindo os atletas e os "BYEs" adicionados.
+## Saídas geradas
 
-2.  **Planilha de Combates (`<nome_da_etapa>_combates.xlsx`):**
-    *   Também é um arquivo com múltiplas abas por categoria, além de uma aba "Total" que consolida todos os confrontos.
-    *   Conteúdo: A agenda detalhada dos combates (MATCH 1, 2, 3) para cada grupo, especificando os oponentes.
+Após processar, o app disponibiliza para download:
 
-3.  **Planilha de Eliminados (`eliminados.xlsx`):**
-    *   Uma lista simples contendo os dados dos atletas que não foram alocados em nenhum grupo de combate.
+* `*<nome_da_etapa>*_grupos.xlsx` — planilha com grupos por categoria.
+* `*<nome_da_etapa>*_combates.xlsx` — planilha com todos os combates e abas por categoria.
+* `*<nome_da_etapa>*_eliminados.xlsx` — lista de atletas eliminados.
 
-## Ferramentas e Tecnologias
+### PDFs de impressão
 
-*   **Python:** Linguagem de programação principal.
-*   **Streamlit:** Framework utilizado para construir a interface web interativa da aplicação.
-*   **Pandas:** Biblioteca utilizada para toda a manipulação de dados, leitura e escrita dos arquivos Excel.
+Ao gerar os PDFs de impressão, o app produz um arquivo PDF por categoria de combate. Cada PDF contém todas as páginas de combates daquela categoria, geradas com o fundo PNG correto.
 
-## Como Executar o Projeto Localmente
+## Estrutura mínima de arquivos
 
-1.  Clone o repositório para a sua máquina.
-2.  Abra um terminal na pasta do projeto.
-3.  Instale as dependências necessárias:
-    ```shell
-    pip install -r requirements.txt
-    ```
-4.  Execute a aplicação Streamlit:
-    ```shell
-    streamlit run app.py
-    ```
-5.  Uma nova aba será aberta no seu navegador com a aplicação em funcionamento.
+### Na raiz do projeto
 
-    ## Notas sobre impressão (DOCX → PDF)
+* `app.py`
+* `requirements.txt`
+* `runtime.txt` (para deploy em Streamlit Cloud)
+* `DistGrupos.xlsx`
+* `DePara Categorias.xlsx`
+* `Fundo Robin Round Individual - Sets.png`
+* `Fundo Robin Round Individual - Soma.png`
 
-    - O projeto gera arquivos DOCX por categoria usando dois modelos e tenta converter esses DOCX para PDF para criar um único PDF de impressão.
-    - Conversão automática suportada por duas ferramentas (prioridade pela ordem):
-        1. `docx2pdf` — automatiza o Microsoft Word (Windows ou macOS). Requer Word instalado; instale com `pip install docx2pdf`.
-        2. `soffice` (LibreOffice) — modo headless (`soffice --headless --convert-to pdf`). Útil em servidores Linux onde o Word não está disponível.
-    - Se nenhuma dessas ferramentas estiver disponível, a aplicação exibirá um aviso e não conseguirá gerar o PDF de impressão automaticamente.
+### Na pasta `pages`
 
-    ## Arquivos que devem estar na raiz do projeto
+* `pages/robinround.py`
 
-    Coloque os seguintes arquivos na mesma pasta onde está o `app.py` (raiz do projeto):
+## Dependências
 
-    - `DistGrupos.xlsx`  — planilha de distribuição de grupos.
-    - `DePara Categorias.xlsx`  — mapeamento `Categoria Quali` → `Categoria Combates`.
-    - `Modelo Robin Round Individual - Soma.docx`  — template DOCX para categorias com soma.
-    - `Modelo Robin Round Individual - Sets.docx`  — template DOCX para categorias por sets.
+As dependências necessárias incluem:
 
-    Além disso, certifique-se de que o `requirements.txt` inclua as dependências listadas (já atualizado neste repositório).
+* `streamlit`
+* `pandas`
+* `openpyxl`
+* `fpdf`
+* `Pillow`
+
+> Observação: o fluxo de PDF usa `fpdf` e imagens PNG como fundo. A conversão DOCX → PDF não é mais necessária para o processo de impressão atual.
+
+## Como executar localmente
+
+1. Abra o terminal na pasta do projeto.
+2. Instale as dependências:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Execute o Streamlit:
+
+```bash
+streamlit run app.py
+```
+
+4. Acesse o app no navegador quando o Streamlit indicar o endereço.
+
+## Notas importantes
+
+* Garanta que as imagens de fundo PNG estejam presentes na raiz do projeto.
+* O app carrega automaticamente `DistGrupos.xlsx` e `DePara Categorias.xlsx`.
+* Os PDFs são gerados por categoria de combate, com todas as páginas da mesma categoria no mesmo arquivo.
+* Se precisar suportar arquivos `.xls`, mantenha `xlrd` instalado, mas não é obrigatório para o fluxo principal.
