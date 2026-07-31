@@ -7,6 +7,7 @@ import streamlit as st
 import os
 import shutil
 import tempfile
+import subprocess
 try:
     from docx import Document
 except Exception:
@@ -286,10 +287,10 @@ def processar_combates(df, df_dist_grupos, etapa, local_da_prova):
                 'match': 'MATCH 3',
                 'genero': categoria_combate,
                 'GRUPO': f'GRUPO {grupo_df.iloc[2]["grupo"]}',
-                'nome a': grupo_df.iloc[0]['Nome Completo'],
-                'clube a': grupo_df.iloc[0]['Clube'],
-                'rank a': grupo_df.iloc[0]['Rank'],
-                'nome b': grupo_df.iloc[1]['Nome Completo'],
+                'nome a': grupo_df.iloc[2]['Nome Completo'],
+                'clube a': grupo_df.iloc[2]['Clube'],
+                'rank a': grupo_df.iloc[2]['Rank'],
+                'nome b': grupo_df.iloc[3]['Nome Completo'],
                 'clube b': grupo_df.iloc[3]['Clube'],
                 'rank b': grupo_df.iloc[3]['Rank'],
                 'ETAPA': etapa,
@@ -345,11 +346,38 @@ def _generate_docx_from_template(df: pd.DataFrame, modelo_path: str, out_docx_pa
 
 def _convert_docx_to_pdf(docx_path: str, pdf_path: str):
     """Convert a DOCX file to PDF using docx2pdf (Windows / Word)."""
-    if docx2pdf_convert is None:
-        raise RuntimeError('docx2pdf is not available. Please `pip install docx2pdf` and ensure Word is installed on Windows.')
-    # docx2pdf.convert accepts (input, output) where input can be file and output a folder or file
-    docx2pdf_convert(docx_path, pdf_path)
-    return pdf_path
+    # Prefer docx2pdf (Word automation) when available
+    if docx2pdf_convert is not None:
+        # docx2pdf.convert accepts (input, output) where input can be file and output a folder or file
+        docx2pdf_convert(docx_path, pdf_path)
+        return pdf_path
+
+    # Fallback: try LibreOffice `soffice` in headless mode (Linux servers)
+    soffice = shutil.which('soffice')
+    if soffice:
+        outdir = os.path.dirname(str(pdf_path)) or '.'
+        try:
+            # soffice will write the converted file into outdir with same base name but .pdf
+            subprocess.check_call([
+                soffice,
+                '--headless',
+                '--convert-to', 'pdf',
+                str(docx_path),
+                '--outdir', outdir,
+            ])
+            # ensure expected output file exists
+            expected_pdf = os.path.join(outdir, os.path.splitext(os.path.basename(docx_path))[0] + '.pdf')
+            if not os.path.exists(expected_pdf):
+                raise RuntimeError(f'soffice conversion did not produce expected PDF: {expected_pdf}')
+            # move/rename to desired pdf_path if different
+            if os.path.abspath(expected_pdf) != os.path.abspath(pdf_path):
+                shutil.move(expected_pdf, pdf_path)
+            return pdf_path
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f'soffice conversion failed: {e}')
+
+    # No conversion method available
+    raise RuntimeError('Nenhuma ferramenta disponível para converter DOCX→PDF. Instale `docx2pdf` (com Word) ou LibreOffice (soffice).')
 
 
 def generate_print_pdf_from_combates(combates_dict: dict, output_pdf_path: str, etapa_name: str):
@@ -472,7 +500,7 @@ def show_page():
         if submitted:
             st.session_state['athlete_selection_confirmed'] = True
 
-        if not st.session_state['athlete_selection_confirmed']:
+        if not st.session_state['athlete_selection_confirmed'] and 'grupos_final' not in st.session_state:
             return
 
         selected_indexes = []
@@ -497,7 +525,19 @@ def show_page():
             )
 
         st.success('Processamento concluído com sucesso!')
-        st.session_state['athlete_selection_confirmed'] = False
+        # Persist results so subsequent Streamlit reruns (e.g. button clicks) can access them
+        st.session_state['grupos_final'] = grupos_final
+        st.session_state['combates_final'] = combates_final
+        st.session_state['eliminados_final'] = eliminados_final
+        st.session_state['etapa_input'] = etapa_input
+        st.session_state['processed'] = True
+        # keep selection_confirmed state as-is; user can re-select on new upload if desired
+
+        # Use persisted results when available so generating PDFs works across reruns
+        grupos_final = st.session_state.get('grupos_final')
+        combates_final = st.session_state.get('combates_final')
+        eliminados_final = st.session_state.get('eliminados_final')
+        etapa_input = st.session_state.get('etapa_input', etapa_input)
 
         if grupos_final:
             grupos_xlsx = to_excel(grupos_final, multi_sheet=True)
@@ -505,7 +545,7 @@ def show_page():
                 label='⬇️ Baixar Planilha de Grupos',
                 data=grupos_xlsx,
                 file_name=f'{etapa_input}_grupos.xlsx',
-                mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             )
 
         if combates_final:
@@ -517,9 +557,23 @@ def show_page():
                 mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
             )
 
+        if eliminados_final is not None and not eliminados_final.empty:
+            eliminados_xlsx = to_excel(eliminados_final)
+            st.download_button(
+                label='⬇️ Baixar Planilha de Eliminados',
+                data=eliminados_xlsx,
+                file_name=f'{etapa_input}_eliminados.xlsx',
+                mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
+            )
+        else:
+            st.info('Não há eliminados.')
+
+        # Impressão: colocar após todos os downloads
+        if combates_final:
             st.markdown('**Impressão:** Gere um PDF único com as páginas por categoria a partir dos modelos.')
-            if docx2pdf_convert is None:
-                st.warning('Conversão DOCX→PDF indisponível: instale `docx2pdf` e tenha o Word no Windows para gerar PDFs automaticamente.')
+            # Warn only if neither docx2pdf nor soffice are available
+            if docx2pdf_convert is None and shutil.which('soffice') is None:
+                st.warning('Conversão DOCX→PDF indisponível: instale `docx2pdf` e tenha o Word no Windows, ou instale LibreOffice (soffice) no servidor.')
             generate_pdf = st.button('Gerar PDFs para Impressão', key='gerar_pdfs_button')
             if generate_pdf:
                 try:
@@ -532,17 +586,6 @@ def show_page():
                     st.download_button('⬇️ Baixar PDF para Impressão', data=pdf_bytes, file_name=f'{etapa_input}_impressao.pdf', mime='application/pdf')
                 except Exception as e:
                     st.error(f'Falha ao gerar o PDF de impressão: {e}')
-
-        if not eliminados_final.empty:
-            eliminados_xlsx = to_excel(eliminados_final)
-            st.download_button(
-                label='⬇️ Baixar Planilha de Eliminados',
-                data=eliminados_xlsx,
-                file_name=f'{etapa_input}_eliminados.xlsx',
-                mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
-            )
-        else:
-            st.info('Não há eliminados.')
 
     except FileNotFoundError as e:
         st.error(str(e))
