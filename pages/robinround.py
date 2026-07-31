@@ -387,6 +387,11 @@ def show_page():
 
     st.header('2. Upload de Arquivos')
     uploaded_file = st.file_uploader('Carregue o arquivo de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
+    if uploaded_file is None and 'uploaded_file' in st.session_state:
+        uploaded_file = st.session_state['uploaded_file']
+
+    if uploaded_file is not None:
+        st.session_state['uploaded_file'] = uploaded_file
 
     if etapa_input == default_etapa_text or not etapa_input.strip():
         st.warning('Altere o nome da etapa para um valor real antes de gerar os combates.')
@@ -456,40 +461,38 @@ def show_page():
             return
 
         st.info(f'{len(selected_indexes)} atleta(s) selecionado(s) para a etapa de combates.')
-        if not st.button('Processar Combates', key='processar_combates_button'):
-            return
+        processar_clicked = st.button('Processar Combates', key='processar_combates_button')
 
-        with st.spinner('Processando... Por favor, aguarde.'):
-            df_selecionados = df_prova.loc[selected_indexes].copy()
-            df_selecionados = calculate_rank(df_selecionados)
-            df_dist_grupos = load_dist_grupos()
-            grupos_final, combates_final, eliminados_final = processar_combates(
-                df_selecionados, df_dist_grupos, etapa_input, local_input
-            )
+        if processar_clicked:
+            with st.spinner('Processando... Por favor, aguarde.'):
+                df_selecionados = df_prova.loc[selected_indexes].copy()
+                df_selecionados = calculate_rank(df_selecionados)
+                df_dist_grupos = load_dist_grupos()
+                grupos_final, combates_final, eliminados_final = processar_combates(
+                    df_selecionados, df_dist_grupos, etapa_input, local_input
+                )
 
-        st.success('Processamento concluído com sucesso!')
-        # Persist results so subsequent Streamlit reruns (e.g. button clicks) can access them
-        st.session_state['grupos_final'] = grupos_final
-        st.session_state['combates_final'] = combates_final
-        st.session_state['eliminados_final'] = eliminados_final
-        st.session_state['etapa_input'] = etapa_input
-        st.session_state['processed'] = True
-        # keep selection_confirmed state as-is; user can re-select on new upload if desired
+            st.success('Processamento concluído com sucesso!')
+            st.session_state['grupos_final'] = grupos_final
+            st.session_state['combates_final'] = combates_final
+            st.session_state['eliminados_final'] = eliminados_final
+            st.session_state['etapa_input'] = etapa_input
+            st.session_state['processed'] = True
 
-        # Use persisted results when available so generating PDFs works across reruns
-        grupos_final = st.session_state.get('grupos_final')
-        combates_final = st.session_state.get('combates_final')
-        eliminados_final = st.session_state.get('eliminados_final')
-        etapa_input = st.session_state.get('etapa_input', etapa_input)
+        if st.session_state.get('processed', False):
+            grupos_final = st.session_state.get('grupos_final')
+            combates_final = st.session_state.get('combates_final')
+            eliminados_final = st.session_state.get('eliminados_final')
+            etapa_input = st.session_state.get('etapa_input', etapa_input)
 
-        if grupos_final:
-            grupos_xlsx = to_excel(grupos_final, multi_sheet=True)
-            st.download_button(
-                label='⬇️ Baixar Planilha de Grupos',
-                data=grupos_xlsx,
-                file_name=f'{etapa_input}_grupos.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            )
+            if grupos_final:
+                grupos_xlsx = to_excel(grupos_final, multi_sheet=True)
+                st.download_button(
+                    label='⬇️ Baixar Planilha de Grupos',
+                    data=grupos_xlsx,
+                    file_name=f'{etapa_input}_grupos.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
 
         if combates_final:
             combates_xlsx = to_excel(combates_final, multi_sheet=True)
