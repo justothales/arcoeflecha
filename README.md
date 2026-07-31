@@ -23,6 +23,8 @@ A interface aceita um arquivo de resultados em um destes formatos:
 
 O arquivo deve conter as informações dos atletas, incluindo pelo menos nome completo e categoria.
 
+* Se a coluna `Session` existir, apenas atletas com `Session = 1` serão considerados para seleção.
+
 ### Arquivos obrigatórios na raiz do projeto
 
 Coloque estes arquivos junto ao `app.py`:
