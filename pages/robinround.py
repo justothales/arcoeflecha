@@ -292,15 +292,18 @@ def show_page():
     ''')
 
     st.header('1. Informações da Prova')
-    etapa_input = st.text_input('Nome da Etapa', '')
+    default_etapa_text = 'Xº Outdoor FPAF 2026 - Xº Robin Round Individual'
+    etapa_input = st.text_input('Nome da Etapa', value=default_etapa_text)
     local_input = st.text_input('Local da Prova', '')
 
     st.header('2. Upload de Arquivos')
     uploaded_file = st.file_uploader('Carregue o arquivo de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
 
     if st.button('Gerar Combates'):
-        if not etapa_input or not local_input:
-            st.warning('Preencha o nome da etapa e o local da prova antes de gerar os combates.')
+        if etapa_input == default_etapa_text or not etapa_input.strip():
+            st.warning('Altere o nome da etapa para um valor real antes de gerar os combates.')
+        elif not local_input.strip():
+            st.warning('Preencha o local da prova antes de gerar os combates.')
         elif uploaded_file is not None:
             try:
                 with st.spinner('Processando... Por favor, aguarde.'):
@@ -321,8 +324,8 @@ def show_page():
                     st.download_button(
                         label='⬇️ Baixar Planilha de Grupos',
                         data=grupos_xlsx,
-                        file_name=f'{etapa_input}.xlsx',
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        file_name=f'{etapa_input}_grupos.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument-spreadsheetml.sheet',
                     )
 
                 if combates_final:
@@ -339,7 +342,7 @@ def show_page():
                     st.download_button(
                         label='⬇️ Baixar Planilha de Eliminados',
                         data=eliminados_xlsx,
-                        file_name='eliminados.xlsx',
+                        file_name=f'{etapa_input}_eliminados.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
                 else:
