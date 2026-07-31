@@ -4,19 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-import os
-import shutil
-import tempfile
-import subprocess
-try:
-    from docx import Document
-except Exception:
-    Document = None
-from PyPDF2 import PdfMerger
-try:
-    from docx2pdf import convert as docx2pdf_convert
-except Exception:
-    docx2pdf_convert = None
+from fpdf import FPDF
 
 def to_excel(dfs, multi_sheet=False):
     """
@@ -314,112 +302,67 @@ def processar_combates(df, df_dist_grupos, etapa, local_da_prova):
     return final_grupos_tabelas, combates_para_salvar, tabela_eliminados
 
 
-def _generate_docx_from_template(df: pd.DataFrame, modelo_path: str, out_docx_path: str, categoria_name: str):
-    """Create a docx file for a category by copying a template and appending a table with the dataframe rows."""
-    if Document is None:
-        raise RuntimeError('python-docx não está instalado. Adicione `python-docx` em requirements.txt ou instale-o com `pip install python-docx`.')
-    shutil.copy(modelo_path, out_docx_path)
-    doc = Document(out_docx_path)
-    # Add a heading with category name
-    doc.add_heading(str(categoria_name), level=2)
-    if df.empty:
-        doc.add_paragraph('Sem combates.')
-        doc.save(out_docx_path)
-        return out_docx_path
+PDF_BACKGROUND_FILES = {
+    'sets': 'Fundo Robin Round Individual - Sets.png',
+    'soma': 'Fundo Robin Round Individual - Soma.png',
+}
 
-    # Add a table with the dataframe contents
-    cols = list(df.columns)
-    table = doc.add_table(rows=1, cols=len(cols))
-    hdr_cells = table.rows[0].cells
-    for i, c in enumerate(cols):
-        hdr_cells[i].text = str(c)
+PDF_PAGE_FIELDS = [
+    ('ETAPA', 37, 8, 9),
+    ('LOCAL', 37, 19, 9),
+    ('genero', 30, 30, 14),
+    ('GRUPO', 125, 30, 14),
+    ('match', 200, 30, 14),
+    ('nome a', 23, 42, 11),
+    ('clube a', 23, 52, 11),
+    ('rank a', 128, 41, 24),
+    ('nome b', 168, 42, 11),
+    ('clube b', 168, 52, 11),
+    ('rank b', 272, 41, 24),
+]
+
+
+def _choose_pdf_background_path(categoria_combate: str) -> Path:
+    base_dir = Path(__file__).resolve().parents[1]
+    categoria = str(categoria_combate or '').strip().upper()
+    key = 'soma' if categoria.startswith('C') else 'sets'
+    background_file = PDF_BACKGROUND_FILES[key]
+    background_path = base_dir / background_file
+    if not background_path.exists():
+        raise FileNotFoundError(f'Arquivo de fundo não encontrado: {background_path}')
+    return background_path
+
+
+def _generate_pdf_bytes_from_combates(df: pd.DataFrame, categoria_combate: str) -> bytes:
+    background_path = _choose_pdf_background_path(categoria_combate)
+    pdf = FPDF('L', 'mm', 'A4')
+    pdf.set_auto_page_break(False)
 
     for _, row in df.iterrows():
-        cells = table.add_row().cells
-        for i, c in enumerate(cols):
-            val = row[c]
-            cells[i].text = '' if pd.isna(val) else str(val)
+        pdf.add_page()
+        pdf.image(str(background_path), x=0, y=0, w=pdf.w, h=pdf.h)
+        pdf.set_text_color(0, 0, 0)
 
-    doc.save(out_docx_path)
-    return out_docx_path
+        for field, x, y, size in PDF_PAGE_FIELDS:
+            pdf.set_font('Arial', '', size)
+            pdf.set_xy(x, y)
+            cell_value = row.get(field, '')
+            if pd.isna(cell_value):
+                cell_value = ''
+            pdf.cell(0, size * 1.1, str(cell_value), border=0, ln=0)
 
-
-def _convert_docx_to_pdf(docx_path: str, pdf_path: str):
-    """Convert a DOCX file to PDF using docx2pdf (Windows / Word)."""
-    # Prefer docx2pdf (Word automation) when available
-    if docx2pdf_convert is not None:
-        # docx2pdf.convert accepts (input, output) where input can be file and output a folder or file
-        docx2pdf_convert(docx_path, pdf_path)
-        return pdf_path
-
-    # Fallback: try LibreOffice `soffice` in headless mode (Linux servers)
-    soffice = shutil.which('soffice')
-    if soffice:
-        outdir = os.path.dirname(str(pdf_path)) or '.'
-        try:
-            # soffice will write the converted file into outdir with same base name but .pdf
-            subprocess.check_call([
-                soffice,
-                '--headless',
-                '--convert-to', 'pdf',
-                str(docx_path),
-                '--outdir', outdir,
-            ])
-            # ensure expected output file exists
-            expected_pdf = os.path.join(outdir, os.path.splitext(os.path.basename(docx_path))[0] + '.pdf')
-            if not os.path.exists(expected_pdf):
-                raise RuntimeError(f'soffice conversion did not produce expected PDF: {expected_pdf}')
-            # move/rename to desired pdf_path if different
-            if os.path.abspath(expected_pdf) != os.path.abspath(pdf_path):
-                shutil.move(expected_pdf, pdf_path)
-            return pdf_path
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f'soffice conversion failed: {e}')
-
-    # No conversion method available
-    raise RuntimeError('Nenhuma ferramenta disponível para converter DOCX→PDF. Instale `docx2pdf` (com Word) ou LibreOffice (soffice).')
+    return pdf.output(dest='S').encode('latin-1', 'replace')
 
 
-def generate_print_pdf_from_combates(combates_dict: dict, output_pdf_path: str, etapa_name: str):
-    """Generate per-category DOCX from templates and convert+merge into a single PDF.
-
-    combates_dict: dict of DataFrames keyed by category name (genero).
-    output_pdf_path: destination PDF full path.
-    etapa_name: used for output filenames.
-    Returns path to merged PDF.
-    """
-    base_dir = Path(__file__).resolve().parents[1]
-    template_soma = base_dir / 'Modelo Robin Round Individual - Soma.docx'
-    template_sets = base_dir / 'Modelo Robin Round Individual - Sets.docx'
-
-    if not template_soma.exists() or not template_sets.exists():
-        raise FileNotFoundError('Um ou ambos os modelos DOCX não foram encontrados no diretório do projeto.')
-
-    tmpdir = Path(tempfile.mkdtemp(prefix='robinround_print_'))
-    pdf_paths = []
-    try:
-        for genero, df in combates_dict.items():
-            if genero == 'Total':
-                continue
-            modelo_path = template_soma if str(genero).strip().upper().startswith('C') else template_sets
-            safe_name = "".join(c for c in str(genero) if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-            out_docx = tmpdir / f"{etapa_name}_{safe_name}.docx"
-            _generate_docx_from_template(df, str(modelo_path), str(out_docx), genero)
-            out_pdf = tmpdir / f"{etapa_name}_{safe_name}.pdf"
-            _convert_docx_to_pdf(str(out_docx), str(out_pdf))
-            pdf_paths.append(str(out_pdf))
-
-        # Merge PDFs
-        merger = PdfMerger()
-        for p in pdf_paths:
-            merger.append(p)
-        with open(output_pdf_path, 'wb') as f:
-            merger.write(f)
-        merger.close()
-        return output_pdf_path
-    finally:
-        # keep temp files for debugging; could remove them
-        shutil.rmtree(tmpdir, ignore_errors=True)
+def generate_print_pdfs_from_combates(combates_dict: dict, etapa_name: str) -> dict[str, bytes]:
+    pdfs_by_category = {}
+    for genero, df in combates_dict.items():
+        if genero == 'Total':
+            continue
+        safe_name = "".join(c for c in str(genero) if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+        pdf_bytes = _generate_pdf_bytes_from_combates(df, genero)
+        pdfs_by_category[safe_name or 'categoria'] = pdf_bytes
+    return pdfs_by_category
 
 
 def show_page():
@@ -570,22 +513,26 @@ def show_page():
 
         # Impressão: colocar após todos os downloads
         if combates_final:
-            st.markdown('**Impressão:** Gere um PDF único com as páginas por categoria a partir dos modelos.')
-            # Warn only if neither docx2pdf nor soffice are available
-            if docx2pdf_convert is None and shutil.which('soffice') is None:
-                st.warning('Conversão DOCX→PDF indisponível: instale `docx2pdf` e tenha o Word no Windows, ou instale LibreOffice (soffice) no servidor.')
+            st.markdown('**Impressão:** Gere PDFs por categoria usando os fundos PNG de Robin Round.')
             generate_pdf = st.button('Gerar PDFs para Impressão', key='gerar_pdfs_button')
             if generate_pdf:
                 try:
-                    tmp_out_pdf = Path(tempfile.gettempdir()) / f"{etapa_input}_impressao.pdf"
-                    with st.spinner('Gerando arquivos DOCX e convertendo para PDF (pode demorar)...'):
-                        pdf_path = generate_print_pdf_from_combates(combates_final, str(tmp_out_pdf), etapa_input)
-                    with open(pdf_path, 'rb') as f:
-                        pdf_bytes = f.read()
-                    st.success('PDF de impressão gerado com sucesso.')
-                    st.download_button('⬇️ Baixar PDF para Impressão', data=pdf_bytes, file_name=f'{etapa_input}_impressao.pdf', mime='application/pdf')
+                    with st.spinner('Gerando PDFs por categoria (pode demorar)...'):
+                        pdfs_by_category = generate_print_pdfs_from_combates(combates_final, etapa_input)
+                    if not pdfs_by_category:
+                        st.warning('Nenhuma categoria encontrada para gerar PDFs.')
+                    else:
+                        st.success('PDFs de impressão gerados com sucesso.')
+                        for categoria_safe_name, pdf_bytes in pdfs_by_category.items():
+                            filename = f'{etapa_input}_{categoria_safe_name}.pdf'
+                            st.download_button(
+                                label=f'⬇️ Baixar PDF {categoria_safe_name}',
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime='application/pdf',
+                            )
                 except Exception as e:
-                    st.error(f'Falha ao gerar o PDF de impressão: {e}')
+                    st.error(f'Falha ao gerar os PDFs de impressão: {e}')
 
     except FileNotFoundError as e:
         st.error(str(e))
