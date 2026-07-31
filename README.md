@@ -7,7 +7,7 @@ Este projeto é uma ferramenta web desenvolvida para automatizar a criação de 
 A aplicação requer três tipos de entrada fornecidos pelo usuário através da interface web:
 
 1.  **Informações da Prova:**
-    *   **Nome da Etapa:** Campo de texto para identificar o nome do torneio (ex: "7º Outdoor FPAF - 4º Robin Round Individual").
+    *   **Nome da Etapa:** Campo de texto para identificar o nome do torneio (ex: "7º Outdoor FPAF 2026 - 4º Robin Round Individual").
     *   **Local da Prova:** Campo de texto para identificar onde a prova está sendo realizada (ex: "Mairiporã").
 
 2.  **Planilha de Resultados da Prova (.xlsx):**
