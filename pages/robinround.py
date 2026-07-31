@@ -1,5 +1,6 @@
 ﻿import io
 import math
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -343,11 +344,16 @@ def _generate_pdf_bytes_from_combates(df: pd.DataFrame, categoria_combate: str) 
         pdf.image(str(background_path), x=0, y=0, w=pdf.w, h=pdf.h)
         pdf.set_text_color(0, 0, 0)
 
+        date_str = datetime.now().strftime('%d/%m/%Y')
         for field, x, y, size in PDF_PAGE_FIELDS:
             pdf.set_font('Arial', '', size)
             pdf.set_xy(x, y)
             cell_value = row.get(field, '')
-            if pd.isna(cell_value):
+            if field == 'LOCAL':
+                if pd.isna(cell_value):
+                    cell_value = ''
+                cell_value = f'{cell_value}, {date_str}' if str(cell_value).strip() else date_str
+            elif pd.isna(cell_value):
                 cell_value = ''
             pdf.cell(0, size * 1.1, str(cell_value), border=0, ln=0)
 
@@ -409,9 +415,18 @@ def show_page():
             df_categoria_map = load_categoria_map()
             df_prova = normalize_input(df_prova, df_categoria_map)
 
+        session_filtered = False
+        if 'Session' in df_prova.columns:
+            total_rows = len(df_prova)
+            df_prova = df_prova[df_prova['Session'].astype(str).str.strip() == '1']
+            session_filtered = len(df_prova) < total_rows
+
         if df_prova.empty:
             st.warning('O arquivo carregado não contém atletas válidos.')
             return
+
+        if session_filtered:
+            st.info('Apenas os atletas da sessão 1 estão na lista dos combates.')
 
         st.header('3. Seleção de Atletas')
         st.write('Abaixo estão os atletas carregados. Desmarque os que NÃO avançam para a etapa de combates.')
