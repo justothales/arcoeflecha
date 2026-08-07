@@ -23,6 +23,16 @@ NEW_COLUMNS = [
     'SO_b',
 ]
 
+FINAL_CSV_COLUMNS = [
+    'RANKING FINAL',
+    'ID',
+    'NOME',
+    'CATEGORIA AGRUPADA',
+    'SIGLA',
+    'CLUBE',
+    'PONTUAÇÃO INDIVIDUAL',
+]
+
 
 def _sanitize_name(value: str) -> str:
     if not value:
@@ -199,8 +209,62 @@ def build_resultados_template(uploaded_file: BinaryIO) -> tuple[bytes, str]:
 def _load_resultados_prova(uploaded_file: BinaryIO) -> pd.DataFrame:
     filename = getattr(uploaded_file, 'name', '')
     if filename.lower().endswith(('.txt', '.csv')):
-        return pd.read_csv(uploaded_file, sep=';', dtype=str, engine='python')
+        raw_bytes = uploaded_file.getvalue()
+        last_error = None
+        for encoding in ['utf-8-sig', 'cp1252', 'latin1']:
+            try:
+                return pd.read_csv(
+                    io.BytesIO(raw_bytes),
+                    sep=';',
+                    dtype=str,
+                    encoding=encoding,
+                    engine='python',
+                )
+            except UnicodeDecodeError as exc:
+                last_error = exc
+        raise ValueError(f'Não foi possível decodificar o arquivo de resultados: {last_error}')
     return pd.read_excel(uploaded_file, dtype=str)
+
+
+def _load_fpaf_points() -> dict[tuple[int, int], float]:
+    candidate_paths = [
+        Path(__file__).resolve().parents[1] / 'Pontos FPAF.xlsx',
+        Path(__file__).resolve().parent / 'Pontos FPAF.xlsx',
+        Path.cwd() / 'Pontos FPAF.xlsx',
+    ]
+    path = next((candidate for candidate in candidate_paths if candidate.exists()), None)
+    if path is None:
+        return {}
+
+    df = pd.read_excel(path, sheet_name=0, header=0, engine='openpyxl')
+    if df.empty:
+        return {}
+
+    rank_column = df.columns[0]
+    points_lookup = {}
+    for _, row in df.iterrows():
+        try:
+            rank = int(float(row[rank_column]))
+        except (TypeError, ValueError):
+            continue
+
+        for athlete_count_column in df.columns[1:]:
+            try:
+                athlete_count = int(float(athlete_count_column))
+            except (TypeError, ValueError):
+                continue
+            points_lookup[(rank, athlete_count)] = _coerce_numeric(row[athlete_count_column])
+
+    return points_lookup
+
+
+def _build_final_csv_bytes(rows: list[dict], results_file_name: str) -> tuple[bytes, str]:
+    output_df = pd.DataFrame(rows, columns=FINAL_CSV_COLUMNS)
+    output = io.StringIO()
+    output_df.to_csv(output, sep=';', index=False)
+    stem = Path(results_file_name).stem if results_file_name else 'resultados'
+    filename = f'{stem} Robin Round.csv'
+    return output.getvalue().encode('utf-8-sig'), filename
 
 
 def _normalize_resultados_prova(df: pd.DataFrame) -> pd.DataFrame:
@@ -210,34 +274,34 @@ def _normalize_resultados_prova(df: pd.DataFrame) -> pd.DataFrame:
         df['Nome Completo'] = df['Nome Completo'].fillna('').astype(str).str.strip()
     elif 'NomeCompleto' in df.columns:
         df['Nome Completo'] = df['NomeCompleto'].fillna('').astype(str).str.strip()
+    elif 'NOME' in df.columns:
+        df['Nome Completo'] = df['NOME'].fillna('').astype(str).str.strip()
     else:
-        family_name = df.get('FamilyName', '').fillna('').astype(str).str.strip()
-        given_name = df.get('GivenName', '').fillna('').astype(str).str.strip()
+        family_name = df['FamilyName'] if 'FamilyName' in df.columns else pd.Series('', index=df.index)
+        given_name = df['GivenName'] if 'GivenName' in df.columns else pd.Series('', index=df.index)
+        family_name = family_name.fillna('').astype(str).str.strip()
+        given_name = given_name.fillna('').astype(str).str.strip()
         df['Nome Completo'] = (family_name + ' ' + given_name).str.strip()
 
-    if 'Clube' in df.columns:
-        df['Clube'] = df['Clube'].fillna('').astype(str).str.strip()
-    elif 'Country' in df.columns:
-        df['Clube'] = df['Country'].fillna('').astype(str).str.strip()
-    else:
-        df['Clube'] = ''
+    club_column = next((col for col in ['Clube', 'CLUBE', 'Country'] if col in df.columns), None)
+    df['Clube'] = df[club_column].fillna('').astype(str).str.strip() if club_column else ''
+
+    sigla_column = next((col for col in ['Sigla', 'SIGLA', 'Noc', 'Club Code'] if col in df.columns), None)
+    df['Sigla'] = df[sigla_column].fillna('').astype(str).str.strip() if sigla_column else ''
+
+    id_column = next((col for col in ['ID', 'Id', 'WaID', 'Athlete ID', 'AthleteId'] if col in df.columns), None)
+    df['ID'] = df[id_column].fillna('').astype(str).str.strip() if id_column else ''
 
     for score_col in ['D1 Score', 'D1', 'Round 1']:
         if score_col in df.columns:
-            df['Round 1'] = pd.to_numeric(
-                df[score_col].astype(str).str.replace(',', '.', regex=False).str.strip(),
-                errors='coerce'
-            ).fillna(0)
+            df['Round 1'] = pd.to_numeric(df[score_col].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce').fillna(0)
             break
     else:
         df['Round 1'] = 0
 
     for score_col in ['D2 Score', 'D2', 'Round 2']:
         if score_col in df.columns:
-            df['Round 2'] = pd.to_numeric(
-                df[score_col].astype(str).str.replace(',', '.', regex=False).str.strip(),
-                errors='coerce'
-            ).fillna(0)
+            df['Round 2'] = pd.to_numeric(df[score_col].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce').fillna(0)
             break
     else:
         df['Round 2'] = 0
@@ -247,10 +311,7 @@ def _normalize_resultados_prova(df: pd.DataFrame) -> pd.DataFrame:
     elif 'Categoria' in df.columns:
         df['Cat Round'] = df['Categoria'].fillna('').astype(str).str.strip()
     elif 'Division' in df.columns and 'Class' in df.columns:
-        df['Cat Round'] = (
-            df['Division'].fillna('').astype(str).str.strip()
-            + df['Class'].fillna('').astype(str).str.strip()
-        ).str.strip()
+        df['Cat Round'] = (df['Division'].fillna('').astype(str).str.strip() + df['Class'].fillna('').astype(str).str.strip()).str.strip()
     elif 'Category' in df.columns:
         df['Cat Round'] = df['Category'].fillna('').astype(str).str.strip()
     else:
@@ -649,6 +710,71 @@ def _build_final_results_workbook(
     return output.getvalue(), filename
 
 
+def _build_final_csv_from_workbook(
+    final_workbook_bytes: bytes,
+    results_file: BinaryIO,
+) -> tuple[bytes, str]:
+    final_excel = pd.ExcelFile(io.BytesIO(final_workbook_bytes), engine='openpyxl')
+    final_rows = []
+    for sheet_name in final_excel.sheet_names:
+        sheet_df = final_excel.parse(sheet_name)
+        if sheet_df.empty:
+            continue
+        sheet_df['CATEGORIA AGRUPADA'] = sheet_name
+        final_rows.append(sheet_df)
+
+    if not final_rows:
+        raise ValueError('O arquivo final não contém categorias para gerar o CSV.')
+
+    final_df = pd.concat(final_rows, ignore_index=True)
+    raw_df = _normalize_resultados_prova(_load_resultados_prova(results_file))
+
+    raw_by_name = {}
+    raw_by_club = {}
+    for _, row in raw_df.iterrows():
+        raw_info = {
+            'ID': str(row.get('ID', '') or '').strip(),
+            'Sigla': str(row.get('Sigla', '') or '').strip(),
+            'Clube': str(row.get('Clube', '') or '').strip(),
+        }
+        name_key = _normalize_text(row.get('Nome Completo', ''))
+        club_key = _normalize_text(row.get('Clube', ''))
+        if name_key and name_key not in raw_by_name:
+            raw_by_name[name_key] = raw_info
+        if club_key and club_key not in raw_by_club:
+            raw_by_club[club_key] = raw_info
+
+    points_lookup = _load_fpaf_points()
+    output_rows = []
+    for _, row in final_df.iterrows():
+        nome = str(row.get('Atleta', '') or '').strip()
+        if not nome or _normalize_text(nome).startswith('bye'):
+            continue
+
+        categoria = str(row.get('CATEGORIA AGRUPADA', '') or '').strip()
+        clube_final = str(row.get('Clube', '') or '').strip()
+        raw_info = raw_by_name.get(_normalize_text(nome), {})
+        if not raw_info:
+            raw_info = raw_by_club.get(_normalize_text(clube_final), {})
+        ranking = int(_coerce_numeric(row.get('Pos Final', 0)))
+        category_count = int((final_df['CATEGORIA AGRUPADA'].astype(str).str.strip() == categoria).sum())
+        individual_points = points_lookup.get((ranking, category_count), 0.0)
+        if float(individual_points).is_integer():
+            individual_points = int(individual_points)
+
+        output_rows.append({
+            'RANKING FINAL': ranking,
+            'ID': raw_info.get('ID', ''),
+            'NOME': nome,
+            'CATEGORIA AGRUPADA': categoria,
+            'SIGLA': raw_info.get('Sigla', ''),
+            'CLUBE': clube_final or raw_info.get('Clube', ''),
+            'PONTUAÇÃO INDIVIDUAL': individual_points,
+        })
+
+    return _build_final_csv_bytes(output_rows, getattr(results_file, 'name', 'resultados'))
+
+
 def show_resultados_rr_page():
     st.title('Consolidação de Resultados')
     st.markdown('''
@@ -700,6 +826,17 @@ def show_resultados_rr_page():
                 data=output_bytes,
                 file_name=filename,
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+
+            csv_bytes, csv_filename = _build_final_csv_from_workbook(
+                output_bytes,
+                uploaded_resultados_prova,
+            )
+            st.download_button(
+                label='⬇️ Baixar CSV Robin Round',
+                data=csv_bytes,
+                file_name=csv_filename,
+                mime='text/csv',
             )
         except Exception as exc:
             st.error(f'Não foi possível gerar o arquivo final: {exc}')
