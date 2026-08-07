@@ -684,7 +684,7 @@ def show_resultados_rr_page():
         key='template_results',
     )
     uploaded_resultados_prova = st.file_uploader(
-        'Carregue o arquivo de resultados da prova (.txt, .csv, .xlsx)',
+        'Carregue o arquivo de resultados do qualificatório (.txt, .csv, .xlsx)',
         type=['txt', 'csv', 'xlsx'],
         key='resultados_prova',
     )
