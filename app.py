@@ -1,5 +1,6 @@
 import streamlit as st
-from pages.robinround import show_page as show_robin_round_page
+from pages.robinround import show_robin_round_page
+from pages.resultados_rr import show_resultados_rr_page
 
 # Configuração global da página
 st.set_page_config(
@@ -23,7 +24,8 @@ def show_inicio_page():
 # Define a estrutura de navegação
 pg = st.navigation([
     st.Page(show_inicio_page, title="Início", default=True, icon="🏠"),
-    st.Page(show_robin_round_page, title="Robin Round Individual", icon="🎯")
+    st.Page(show_robin_round_page, title="Robin Round Individual", icon="🎯"),
+    st.Page(show_resultados_rr_page, title="Consolidação de Resultados", icon="📊")
 ])
 
 # Executa a página selecionada
