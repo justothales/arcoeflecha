@@ -392,7 +392,7 @@ def show_robin_round_page():
     local_input = st.text_input('Local da Prova', '')
 
     st.header('2. Upload de Arquivos')
-    uploaded_file = st.file_uploader('Carregue o arquivo de Resultados da Prova (.txt, .csv ou .xlsx)', type=['txt', 'csv', 'xlsx'])
+    uploaded_file = st.file_uploader('Carregue o arquivo de resultados do qualificatório (.txt, .csv, .xlsx)', type=['txt', 'csv', 'xlsx'])
     if uploaded_file is None and 'uploaded_file' in st.session_state:
         uploaded_file = st.session_state['uploaded_file']
 
