@@ -659,7 +659,7 @@ def show_resultados_rr_page():
 
     st.subheader('1. Gerar template de resultados')
     uploaded_template_source = st.file_uploader(
-        'Carregue a planilha gerada pelo Robin Round (.xlsx)',
+        'Carregue a planilha "_combates" do Robin Round Individual (.xlsx)',
         type=['xlsx'],
         key='template_source',
     )
@@ -679,7 +679,7 @@ def show_resultados_rr_page():
 
     st.subheader('2. Gerar arquivo final')
     uploaded_template_results = st.file_uploader(
-        'Carregue o arquivo com sufixo _template resultados preenchido (.xlsx)',
+        'Carregue o arquivo "_template resultados" preenchido (.xlsx)',
         type=['xlsx'],
         key='template_results',
     )
