@@ -371,7 +371,7 @@ def generate_print_pdfs_from_combates(combates_dict: dict, etapa_name: str) -> d
     return pdfs_by_category
 
 
-def show_page():
+def show_robin_round_page():
     # --- Streamlit UI ---
     st.title('Gerador de Combates - Robin Round Individual')
 
