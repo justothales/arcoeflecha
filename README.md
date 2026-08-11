@@ -1,30 +1,90 @@
 # Gerador de Combates — Robin Round Individual
 
-Aplicação em Streamlit para organizar a fase de combates de um Robin Round Individual de competições de arco e flecha, consolidar os resultados e gerar os arquivos finais da prova.
+Aplicação em Streamlit para organizar um Robin Round Individual de competições de arco e flecha, gerar os confrontos, registrar os resultados e produzir a classificação final da prova.
 
-## Funcionalidades
+# Parte 1 — Guia rápido para o usuário
 
-A aplicação permite:
+## O que o aplicativo faz
 
-- carregar resultados de uma fase qualificatória;
-- aceitar arquivos `.txt`, `.csv` e `.xlsx`;
-- normalizar nomes, clubes, categorias e pontuações;
-- filtrar atletas da `Session = 1`, quando essa coluna existir;
-- mapear categorias da qualificatória para categorias agrupadas de combate;
-- calcular o ranking dentro de cada categoria;
-- selecionar manualmente os atletas que avançam para os combates;
-- distribuir atletas nos grupos conforme a matriz de distribuição;
-- preencher grupos incompletos com participantes `BYE`;
-- gerar a planilha de grupos;
-- gerar a planilha de combates;
-- gerar a lista de atletas eliminados pela distribuição;
-- gerar PDFs prontos para impressão;
-- criar um template para lançamento dos resultados dos combates;
-- consolidar vencedores, vitórias, médias, bônus e pontuação final;
-- gerar o arquivo final em Excel;
-- gerar um CSV final no formato utilizado pela federação.
+O aplicativo transforma os resultados da qualificatória em uma etapa completa de Robin Round:
 
-## Estrutura do projeto
+1. lê e organiza os atletas da qualificatória;
+2. permite confirmar quem participará dos combates;
+3. distribui os atletas em grupos;
+4. gera os confrontos e os arquivos para impressão;
+5. recebe os resultados preenchidos;
+6. calcula vitórias, médias, bônus e pontuação final;
+7. disponibiliza o Excel final e o CSV da competição.
+
+## Fluxo recomendado
+
+### Etapa 1 — Gerar os combates
+
+Na página **Robin Round Individual**:
+
+1. informe o **Nome da Etapa**;
+2. informe o **Local da Prova**;
+3. carregue o arquivo bruto da qualificatória (`.txt`, `.csv` ou `.xlsx`);
+4. confira a lista de atletas apresentada;
+5. desmarque os atletas que não participarão do Robin Round;
+6. clique em **Confirmar seleção**;
+7. clique em **Processar Combates**;
+8. baixe as planilhas e, se necessário, gere os PDFs para impressão.
+
+Ao final dessa etapa, o aplicativo pode gerar:
+
+- planilha de grupos;
+- planilha de combates;
+- lista de eliminados pela distribuição;
+- PDFs de impressão separados por categoria.
+
+### Etapa 2 — Registrar os resultados
+
+Na página **Consolidação de Resultados**:
+
+1. carregue a planilha de combates gerada na etapa anterior;
+2. clique em **Gerar template de resultados**;
+3. baixe o template;
+4. preencha os resultados nas colunas dos sets e do `Shoot-Off`;
+5. carregue o template preenchido;
+6. carregue novamente o arquivo bruto da qualificatória;
+7. clique em **Gerar arquivo final**;
+8. baixe o Excel final e o CSV Robin Round.
+
+> O arquivo bruto da qualificatória é solicitado novamente na consolidação para recuperar dados como ID, sigla, clube e pontuações da qualificatória.
+
+## Como preencher os resultados
+
+O template possui uma aba para cada confronto (`MATCH 1`, `MATCH 2` e `MATCH 3`). Preencha somente as colunas de resultado correspondentes a cada atleta:
+
+- `Set 1_a` a `Set 5_a`;
+- `SO_a`;
+- `Set 1_b` a `Set 5_b`;
+- `SO_b`.
+
+Não altere os nomes dos atletas, as categorias, os grupos ou a estrutura das abas. Esses campos são usados para identificar os participantes e consolidar o resultado.
+
+## Arquivos que o usuário recebe
+
+Depois de gerar os combates:
+
+```text
+<etapa>_grupos.xlsx
+<etapa>_combates.xlsx
+<etapa>_eliminados.xlsx
+<etapa>_<categoria>.pdf
+```
+
+Depois de consolidar os resultados:
+
+```text
+<etapa>_final.xlsx
+<nome do arquivo bruto> Robin Round.csv
+```
+
+# Parte 2 — Detalhes técnicos
+
+## Estrutura esperada do projeto
 
 ```text
 projeto/
@@ -46,17 +106,17 @@ projeto/
     └── resultados_rr.py
 ```
 
-## Arquivos Python
+## Componentes Python
 
 ### `app.py`
 
-É o ponto de entrada da aplicação. Configura o Streamlit e disponibiliza as páginas:
+É o ponto de entrada do Streamlit. Configura a página e disponibiliza as rotas:
 
 - **Início**;
 - **Robin Round Individual**;
 - **Consolidação de Resultados**.
 
-Execute a aplicação com:
+Execução local:
 
 ```bash
 streamlit run app.py
@@ -64,145 +124,91 @@ streamlit run app.py
 
 ### `pages/robinround.py`
 
-Responsável pela primeira etapa do fluxo:
+Implementa a preparação dos combates:
 
-1. leitura dos resultados da qualificatória;
-2. normalização dos dados dos atletas;
-3. conversão das categorias;
-4. cálculo do ranking;
-5. seleção dos atletas que avançam;
-6. distribuição nos grupos;
-7. inclusão de `BYE` quando necessário;
-8. criação dos confrontos;
-9. exportação das planilhas;
-10. geração dos PDFs para impressão.
+1. leitura do arquivo da qualificatória;
+2. normalização de nomes, categorias e pontuações;
+3. filtragem da sessão, quando aplicável;
+4. mapeamento para a categoria de combate;
+5. ranking da qualificatória dentro de cada categoria;
+6. seleção dos atletas;
+7. distribuição conforme `DistGrupos.xlsx`;
+8. inclusão de `BYE` em grupos incompletos;
+9. geração dos seis confrontos de cada grupo;
+10. exportação das planilhas e PDFs.
 
 ### `pages/resultados_rr.py`
 
-Responsável pela consolidação dos resultados:
+Implementa a consolidação:
 
-1. criação do template de resultados;
+1. criação do template a partir da aba `Total` da planilha de combates;
 2. leitura dos resultados preenchidos;
 3. identificação dos vencedores;
-4. cálculo das vitórias;
-5. cálculo das médias dos combates;
+4. contagem de vitórias e `Shoot-Offs`;
+5. cálculo da média dos combates;
 6. aplicação dos bônus;
 7. cálculo da pontuação total da prova;
-8. classificação final por categoria;
+8. ranking final por categoria;
 9. geração do Excel final;
-10. geração do CSV final do Robin Round.
+10. geração do CSV final.
 
-## Arquivos auxiliares
+## Arquivo de entrada da qualificatória
 
-### `DistGrupos.xlsx`
-
-Define a distribuição de grupos de acordo com a quantidade de atletas e o ranking.
-
-O valor `99` representa uma combinação inválida ou uma posição que não deve participar da distribuição. Esses atletas são enviados para a lista de eliminados.
-
-### `DePara Categorias.xlsx`
-
-Mapeia a categoria original da qualificatória para a categoria agrupada utilizada nos combates.
-
-Exemplos:
-
-```text
-B65M  -> B50M
-CS15M -> C40M
-R50F  -> R60M
-W1F   -> W150M
-```
-
-### `Pontos Round.xlsx`
-
-Converte o ranking da qualificatória em pontos de Round.
-
-### `Pontos FPAF.xlsx`
-
-Define a pontuação individual do resultado final.
-
-- a primeira coluna contém o ranking final;
-- as colunas seguintes representam a quantidade de atletas da categoria;
-- o valor da pontuação é obtido no cruzamento entre o ranking final e a quantidade de atletas da categoria.
-
-### `Bonus Round.xlsx`
-
-Contém os bônus relacionados à pontuação da fase qualificatória, considerando a categoria, o gênero e a faixa de pontuação.
-
-### `Bonus Médias.xlsx`
-
-Contém os bônus relacionados à média dos combates, considerando a categoria e a faixa de pontuação.
-
-### Arquivos PNG
-
-Os arquivos abaixo são utilizados como fundo dos PDFs de impressão:
-
-```text
-Fundo Robin Round Individual - Sets.png
-Fundo Robin Round Individual - Soma.png
-```
-
-Categorias iniciadas com `C` utilizam o modelo de soma. As demais utilizam o modelo de sets.
-
-## Entrada da qualificatória
-
-A aplicação aceita arquivos nos formatos:
+São aceitos os formatos:
 
 - `.txt`;
 - `.csv`;
 - `.xlsx`.
 
-Arquivos `.txt` e `.csv` devem utilizar `;` como separador. A aplicação tenta ler arquivos com as codificações:
+Arquivos `.txt` e `.csv` devem usar `;` como separador. As colunas reconhecidas incluem:
 
-1. UTF-8 com BOM;
-2. `cp1252`;
-3. `latin1`.
+- identificação: `ID`, `Id`, `WaID`, `Athlete ID` ou `AthleteId`;
+- nome: `Nome Completo`, `NomeCompleto`, `NOME` ou `FamilyName` + `GivenName`;
+- clube: `Clube`, `CLUBE` ou `Country`;
+- sigla: `Sigla`, `SIGLA`, `Noc` ou `Club Code`;
+- categoria: `Categoria Quali`, `Categoria`, `Division` + `Class` ou `Category`;
+- pontuação: `Score`, `10+X` e `X`;
+- sessão: `Session`.
 
-O arquivo pode conter, entre outras, as seguintes colunas:
+Quando `Division` e `Class` existem, a categoria da qualificatória é formada pela concatenação dos dois campos. A categoria é então convertida pela tabela `DePara Categorias.xlsx`.
 
-- `Nome Completo` ou `NOME`;
-- `FamilyName` e `GivenName`;
-- `ID`, `WaID` ou identificador equivalente;
-- `Clube` ou `CLUBE`;
-- `Sigla`, `SIGLA`, `Noc` ou `Club Code`;
-- `Division`;
-- `Class`;
-- `Score`;
-- `10+X`;
-- `X`;
-- `Session`.
+Se a coluna `Session` existir, somente os atletas com `Session = 1` entram na lista de combates.
 
-Quando `Division` e `Class` estiverem presentes, a categoria da qualificatória é formada pela combinação desses dois campos.
+## Normalização e ranking da qualificatória
 
-## Fluxo de uso
+Antes do processamento, a aplicação:
 
-### 1. Gerar os combates
+- remove espaços excedentes dos campos textuais;
+- converte pontuações numéricas, aceitando vírgula decimal;
+- cria o nome completo quando necessário;
+- padroniza clube e sigla;
+- substitui a categoria original pela categoria de combate quando houver correspondência no de-para.
 
-Na página **Robin Round Individual**:
+O ranking é calculado separadamente por categoria de combate, considerando, nesta ordem:
 
-1. informe o nome da etapa;
-2. informe o local da prova;
-3. carregue o arquivo bruto da qualificatória;
-4. confira os atletas carregados;
-5. desmarque os atletas que não participarão;
-6. confirme a seleção;
-7. clique em **Processar Combates**;
-8. baixe os arquivos gerados.
+1. `Score`, do maior para o menor;
+2. `10+X`, do maior para o menor;
+3. `X`, do maior para o menor;
+4. nome do atleta como critério técnico de ordenação quando os valores anteriores forem iguais.
 
-### 2. Preencher os resultados
+Esse ranking é usado para consultar a matriz de distribuição de grupos.
 
-Na página **Consolidação de Resultados**:
+## Distribuição dos grupos
 
-1. carregue a planilha de combates;
-2. gere o template de resultados;
-3. preencha os resultados nas colunas dos sets e do `Shoot-Off`;
-4. carregue o template preenchido;
-5. carregue novamente o arquivo bruto da qualificatória;
-6. clique em **Gerar arquivo final**.
+### `DistGrupos.xlsx`
 
-## Combates gerados
+A matriz define o grupo de cada posição do ranking de acordo com a quantidade de atletas da categoria.
 
-Cada grupo de quatro atletas gera seis confrontos:
+- o índice representa o ranking;
+- as colunas representam a quantidade de atletas;
+- o valor encontrado representa o grupo;
+- o valor `99` representa uma posição inválida ou não distribuída.
+
+Atletas associados ao valor `99` são enviados para a planilha de eliminados. Grupos com menos de quatro atletas são completados com participantes `BYE`.
+
+### Confrontos
+
+Cada grupo de quatro posições gera seis confrontos:
 
 | Match | Confronto |
 |---|---|
@@ -213,54 +219,117 @@ Cada grupo de quatro atletas gera seis confrontos:
 | MATCH 3 | Atleta 1 × Atleta 2 |
 | MATCH 3 | Atleta 3 × Atleta 4 |
 
-Os confrontos são organizados por categoria e grupo.
+Confrontos formados exclusivamente por `BYE` não são incluídos na planilha de combates.
 
-## Regras de resultado
+## Regras para determinar o vencedor
 
 ### Categorias de soma
 
-Para categorias iniciadas com `C`, o vencedor é definido pela soma das pontuações dos sets. Em caso de empate, o `Shoot-Off` é utilizado como desempate.
+Categorias cujo código começa com `C` usam a soma dos valores dos sets. O maior total vence. Se houver empate, o maior valor de `Shoot-Off` define o vencedor.
 
 ### Categorias de sets
 
-Para as demais categorias:
+Nas demais categorias, cada set vale:
 
-- vitória em um set: 2 pontos;
-- empate em um set: 1 ponto para cada atleta;
-- derrota em um set: 0 pontos.
+- vitória no set: 2 pontos;
+- empate no set: 1 ponto para cada atleta;
+- derrota no set: 0 pontos.
 
-O primeiro atleta a atingir pelo menos 6 pontos de set é considerado vencedor. Se o confronto terminar empatado, o `Shoot-Off` é utilizado como desempate.
+O atleta que atingir pelo menos 6 pontos de sets primeiro vence. Se o confronto terminar empatado, o `Shoot-Off` é usado como desempate.
 
 ### `BYE`
 
-Quando um confronto possui um atleta real e um `BYE`, o atleta real é considerado vencedor automaticamente.
+Quando apenas um dos lados é `BYE`, o atleta real é considerado vencedor automaticamente.
 
-## Arquivos gerados
+## Cálculo da pontuação final
 
-Após o processamento dos combates, a aplicação disponibiliza:
+A pontuação total do atleta é formada pela soma de:
+
+- pontos do Round;
+- bônus do Round;
+- número de vitórias nos combates;
+- bonificação por `Shoot-Off`;
+- pontuação do ranking de médias no grupo;
+- bônus da média;
+- bônus do grupo.
+
+### Arquivos de regras de pontuação
+
+#### `Pontos Round.xlsx`
+
+Converte o ranking da qualificatória em pontos de Round. A busca utiliza a coluna `Rank` e o valor correspondente em `Pontos Round`.
+
+#### `Bonus Round.xlsx`
+
+Define o bônus da qualificatória por:
+
+- categoria de combate;
+- gênero;
+- faixa de pontuação mínima e máxima.
+
+#### `Bonus Médias.xlsx`
+
+Define o bônus associado à média dos combates por categoria e faixa de média.
+
+#### `Pontos FPAF.xlsx`
+
+Define a pontuação individual usada no CSV final. A busca considera:
+
+- ranking final;
+- quantidade de atletas da categoria.
+
+## Ranking das médias e empates
+
+A classificação das médias dentro de cada grupo deve usar ranking competitivo, sem desempate pelo nome.
+
+Exemplos:
+
+- médias diferentes: `1º, 2º, 3º, 4º`;
+- empate na segunda posição: `1º, 2º, 2º, 4º`;
+- empate na primeira posição: `1º, 1º, 3º, 4º`;
+- empate na terceira posição: `1º, 2º, 3º, 3º`.
+
+Os bônus correspondentes são atribuídos à posição competitiva. Portanto, em um empate na terceira posição, os quatro atletas recebem:
 
 ```text
-<etapa>_grupos.xlsx
-<etapa>_combates.xlsx
-<etapa>_eliminados.xlsx
+2,0 / 1,5 / 1,0 / 1,0
 ```
 
-Também podem ser gerados PDFs separados por categoria:
+A quarta posição é consumida pelo empate e o último atleta fica na quinta posição. Se não houver bônus definido para a quinta posição, ele recebe `0,0`.
+
+## Ranking final
+
+O ranking final é calculado separadamente por categoria, em ordem decrescente de `Pontuação Total da Prova`.
+
+Atletas com a mesma pontuação recebem a mesma posição final pelo ranking competitivo. O nome pode ser usado apenas para ordenar visualmente as linhas, não para alterar a posição atribuída ao empate.
+
+## Excel final
+
+O arquivo final contém uma aba por categoria. As principais colunas são:
 
 ```text
-<etapa>_<categoria>.pdf
+Pos Final
+Atleta
+Cat Round
+Cat Combate
+Clube
+Round 1
+Round 2
+Total Round
+Pontos Round
+Bonus Round
+Nº de Vitórias Combates
+Bonificação Shoot-Offs
+Média dos Combates
+Ranking Médias no Grupo
+Bonus Média
+Bonus Grupo
+Pontuação Total da Prova
 ```
 
-Após a consolidação dos resultados, são gerados:
+## CSV final
 
-```text
-<etapa>_final.xlsx
-<nome do arquivo bruto> Robin Round.csv
-```
-
-## CSV final do Robin Round
-
-O CSV final possui exatamente estas colunas:
+O CSV possui as colunas:
 
 ```text
 RANKING FINAL
@@ -272,27 +341,36 @@ CLUBE
 PONTUAÇÃO INDIVIDUAL
 ```
 
-### Regras do CSV
+Regras de preenchimento:
 
-- `RANKING FINAL`: utiliza a posição final do arquivo consolidado;
-- `ID`: é recuperado do arquivo bruto da qualificatória;
-- `NOME`: utiliza o nome completo do atleta;
-- `CATEGORIA AGRUPADA`: utiliza a categoria de combate;
-- `SIGLA`: é recuperada do arquivo bruto por correspondência de nome ou clube;
-- `CLUBE`: utiliza o clube do arquivo final, com fallback para o arquivo bruto;
-- `PONTUAÇÃO INDIVIDUAL`: é calculada usando `Pontos FPAF.xlsx`.
+- `RANKING FINAL`: posição final do atleta;
+- `ID`: recuperado do arquivo bruto;
+- `NOME`: nome do atleta no arquivo final;
+- `CATEGORIA AGRUPADA`: nome da aba/categoria do Excel final;
+- `SIGLA`: recuperada do arquivo bruto por nome ou clube;
+- `CLUBE`: utiliza o valor final, com fallback para o arquivo bruto;
+- `PONTUAÇÃO INDIVIDUAL`: consultada em `Pontos FPAF.xlsx`.
 
-Os atletas `BYE` não são incluídos no CSV e não entram na contagem de atletas da categoria.
+Atletas `BYE` não são incluídos no CSV nem na contagem de atletas da categoria. O arquivo usa `;` como separador e codificação UTF-8 com BOM.
 
-O CSV é gerado com:
+## Arquivos auxiliares e imagens
 
-- separador `;`;
-- codificação UTF-8 com BOM;
-- suporte a caracteres acentuados.
+Os seguintes arquivos devem permanecer disponíveis na raiz do projeto, com os nomes exatamente iguais:
 
-## Dependências
+- `DistGrupos.xlsx`;
+- `DePara Categorias.xlsx`;
+- `Pontos Round.xlsx`;
+- `Pontos FPAF.xlsx`;
+- `Bonus Round.xlsx`;
+- `Bonus Médias.xlsx`;
+- `Fundo Robin Round Individual - Sets.png`;
+- `Fundo Robin Round Individual - Soma.png`.
 
-As principais dependências são:
+Categorias iniciadas com `C` usam o fundo de soma nos PDFs. As demais usam o fundo de sets.
+
+## Dependências e execução local
+
+Dependências principais:
 
 ```text
 streamlit
@@ -302,44 +380,34 @@ fpdf
 Pillow
 ```
 
-Para instalar:
+Instalação:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Execução local
-
-1. Abra o terminal na pasta do projeto.
-2. Instale as dependências:
-
-```bash
-pip install -r requirements.txt
-```
-
-3. Execute o Streamlit:
+Execução:
 
 ```bash
 streamlit run app.py
 ```
 
-4. Abra no navegador o endereço informado pelo Streamlit.
+O ambiente Python recomendado está definido em `runtime.txt`.
 
 ## Implantação no Streamlit Community Cloud
 
 Para publicar o projeto:
 
-1. envie todos os arquivos para o repositório;
-2. confirme que `app.py` está na raiz;
-3. confirme que a pasta `pages` está na raiz;
-4. mantenha os arquivos `.xlsx` e `.png` na raiz;
-5. configure `app.py` como arquivo principal;
-6. mantenha `requirements.txt` e `runtime.txt` no repositório.
+1. envie `app.py`, a pasta `pages`, `requirements.txt` e `runtime.txt` para o repositório;
+2. mantenha os arquivos `.xlsx` e `.png` na raiz;
+3. configure `app.py` como arquivo principal;
+4. confirme que os nomes dos arquivos auxiliares não foram alterados.
 
-## Observações
+## Solução de problemas
 
-- Os nomes dos arquivos auxiliares devem ser mantidos exatamente, incluindo espaços, acentos e extensão.
-- O arquivo `Pontos FPAF.xlsx` é necessário para gerar corretamente a pontuação individual do CSV final.
-- O arquivo bruto deve ser fornecido novamente na etapa de consolidação para recuperar o ID e a sigla dos atletas.
-- O preenchimento dos resultados deve ser feito no template gerado pela própria aplicação.
-- Em caso de erro, confira principalmente os nomes das colunas do arquivo bruto e a presença dos arquivos auxiliares na raiz do projeto.
+- **Categoria não reconhecida:** confira `DePara Categorias.xlsx` e os campos `Division`/`Class` do arquivo de entrada.
+- **Poucos atletas na lista:** verifique o filtro `Session = 1` e a seleção manual.
+- **Atletas eliminados:** confira a matriz `DistGrupos.xlsx`; o valor `99` envia o atleta para a lista de eliminados.
+- **Resultado não identificado:** preserve os nomes dos atletas e as abas criadas no template.
+- **CSV sem pontuação individual:** confira a existência de `Pontos FPAF.xlsx` e se a combinação entre ranking e quantidade de atletas está cadastrada.
+- **Erro ao gerar PDF:** confirme a presença dos dois arquivos PNG na raiz do projeto.
