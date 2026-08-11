@@ -569,6 +569,7 @@ def _build_final_results_workbook(
                     'Cat Round': cat_round,
                     'Cat Combate': categoria,
                     'Clube': row['Clube'],
+                    'Grupo': str(row.get('Grupo', '') or '').strip(),
                     'Round 1': result_info.get('Round 1', 0),
                     'Round 2': result_info.get('Round 2', 0),
                     'Total Round': total_round,
@@ -619,16 +620,29 @@ def _build_final_results_workbook(
 
                     sheet_df.loc[sheet_df['Atleta'] == row['Atleta'], 'Média dos Combates'] = round(float(media), 2)
 
-                ranking_points = {row['Atleta']: 0.0 for row in unique_rows}
-                for idx, athlete_row in sheet_df.iterrows():
-                    ranking_points[athlete_row['Atleta']] = _coerce_numeric(athlete_row['Média dos Combates'])
-                sorted_names = sorted(ranking_points, key=ranking_points.get, reverse=True)
-                ranking_map = {}
-                for position, athlete_name in enumerate(sorted_names):
-                    ranking_map[athlete_name] = float(['2.0', '1.5', '1.0', '0.5'][position]) if position < 4 else 0.0
-
-                for idx, athlete_row in sheet_df.iterrows():
-                    sheet_df.at[idx, 'Ranking Médias no Grupo'] = ranking_map.get(athlete_row['Atleta'], 0.0)
+                sheet_df['Grupo'] = sheet_df['Grupo'].fillna('').astype(str).str.strip()
+                sheet_df['Ranking Médias no Grupo'] = 0.0
+                ranking_bonus_by_position = {1: 2.0, 2: 1.5, 3: 1.0, 4: 0.5}
+                for _, group_indexes in sheet_df.groupby('Grupo', sort=False).groups.items():
+                    group_df = sheet_df.loc[group_indexes].copy()
+                    group_df['_media_num'] = pd.to_numeric(
+                        group_df['Média dos Combates'], errors='coerce'
+                    ).fillna(0.0)
+                    group_df = group_df.sort_values(
+                        by=['_media_num'],
+                        ascending=[False],
+                        kind='mergesort',
+                    )
+                    previous_media = None
+                    current_position = 0
+                    for sequence, athlete_index in enumerate(group_df.index, start=1):
+                        media_value = float(group_df.at[athlete_index, '_media_num'])
+                        if previous_media is None or media_value != previous_media:
+                            current_position = sequence
+                        sheet_df.at[athlete_index, 'Ranking Médias no Grupo'] = ranking_bonus_by_position.get(
+                            current_position, 0.0
+                        )
+                        previous_media = media_value
 
                 sheet_df['Média dos Combates'] = pd.to_numeric(sheet_df['Média dos Combates'], errors='coerce')
                 sheet_df['Ranking Médias no Grupo'] = pd.to_numeric(sheet_df['Ranking Médias no Grupo'], errors='coerce')
@@ -663,6 +677,11 @@ def _build_final_results_workbook(
                 ranked_rows['Pos Final'] = ranked_positions
                 position_map = ranked_rows.set_index('Atleta')['Pos Final'].to_dict()
                 sheet_df['Pos Final'] = sheet_df['Atleta'].map(position_map).fillna(0).astype(int)
+                sheet_df = sheet_df.sort_values(
+                    by=['Pos Final', 'Atleta'],
+                    ascending=[True, True],
+                    kind='mergesort',
+                ).reset_index(drop=True)
 
                 ordered_columns = [
                     'Pos Final',
@@ -670,6 +689,7 @@ def _build_final_results_workbook(
                     'Cat Round',
                     'Cat Combate',
                     'Clube',
+                    'Grupo',
                     'Round 1',
                     'Round 2',
                     'Total Round',
@@ -727,6 +747,12 @@ def _build_final_csv_from_workbook(
         raise ValueError('O arquivo final não contém categorias para gerar o CSV.')
 
     final_df = pd.concat(final_rows, ignore_index=True)
+    final_df['_pos_num'] = pd.to_numeric(final_df.get('Pos Final', 0), errors='coerce').fillna(0)
+    final_df = final_df.sort_values(
+        by=['CATEGORIA AGRUPADA', '_pos_num', 'Atleta'],
+        ascending=[True, True, True],
+        kind='mergesort',
+    ).reset_index(drop=True)
     raw_df = _normalize_resultados_prova(_load_resultados_prova(results_file))
 
     raw_by_name = {}
