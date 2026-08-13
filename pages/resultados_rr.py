@@ -90,6 +90,52 @@ def _coerce_numeric(value) -> float:
         return 0.0
 
 
+def _coerce_optional_numeric(value):
+    """Converte um set preenchido em número e preserva célula vazia como None."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return _coerce_numeric(value)
+
+
+def _sets_played_by_set_points(match_row: dict) -> list[tuple[float, float]]:
+    """Retorna somente os sets efetivamente disputados em uma categoria de sets.
+
+    A duração é determinada pela mesma regra usada para o vencedor: cada set
+    vale 2 pontos para uma vitória, 1 ponto para cada atleta em um empate, e o
+    combate termina quando alguém alcança 6 pontos. Células vazias representam
+    sets não disputados; o valor 0, quando informado, continua sendo uma
+    pontuação válida.
+    """
+    played_sets = []
+    set_points_a = 0
+    set_points_b = 0
+
+    for number in ['1', '2', '3', '4', '5']:
+        raw_a = match_row.get(f'Set {number}_a')
+        raw_b = match_row.get(f'Set {number}_b')
+        if raw_a is None and raw_b is None:
+            break
+
+        score_a = _coerce_numeric(raw_a)
+        score_b = _coerce_numeric(raw_b)
+        played_sets.append((score_a, score_b))
+
+        if score_a > score_b:
+            set_points_a += 2
+        elif score_b > score_a:
+            set_points_b += 2
+        else:
+            set_points_a += 1
+            set_points_b += 1
+
+        if set_points_a >= 6 or set_points_b >= 6:
+            break
+
+    return played_sets
+
+
 def _format_decimal(value, decimals: int = 2) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ''
@@ -376,8 +422,10 @@ def _extract_match_rows(uploaded_file: BinaryIO) -> list[dict]:
                 'Rank B': row.get('rank b'),
             }
             for suffix in ['1', '2', '3', '4', '5']:
-                match_row[f'Set {suffix}_a'] = _coerce_numeric(row.get(f'Set {suffix}_a'))
-                match_row[f'Set {suffix}_b'] = _coerce_numeric(row.get(f'Set {suffix}_b'))
+                # Preserva células vazias como None. Zero informado é um set
+                # válido e não pode ser confundido com set não disputado.
+                match_row[f'Set {suffix}_a'] = _coerce_optional_numeric(row.get(f'Set {suffix}_a'))
+                match_row[f'Set {suffix}_b'] = _coerce_optional_numeric(row.get(f'Set {suffix}_b'))
             match_row['SO_a'] = _coerce_numeric(row.get('SO_a'))
             match_row['SO_b'] = _coerce_numeric(row.get('SO_b'))
             match_rows.append(match_row)
@@ -605,18 +653,32 @@ def _build_final_results_workbook(
                             match_scores.append(total)
                         media = sum(match_scores) / len(match_scores) if match_scores else 0.0
                     else:
-                        set_scores = []
+                        # Para categorias de sets, calcula primeiro a média de cada
+                        # combate isoladamente e, depois, a média das médias dos
+                        # combates do atleta. Assim, combates com 3, 4 ou 5 sets
+                        # têm o mesmo peso no resultado final.
+                        match_averages = []
                         for match_row in match_rows:
-                            if _normalize_text(match_row.get('Atleta A', '')) != row_key and _normalize_text(match_row.get('Atleta B', '')) != row_key:
+                            athlete_a_key = _normalize_text(match_row.get('Atleta A', ''))
+                            athlete_b_key = _normalize_text(match_row.get('Atleta B', ''))
+                            if athlete_a_key != row_key and athlete_b_key != row_key:
                                 continue
-                            for i in ['1', '2', '3', '4', '5']:
-                                if _normalize_text(match_row.get('Atleta A', '')) == row_key:
-                                    score = _coerce_numeric(match_row.get(f'Set {i}_a'))
-                                else:
-                                    score = _coerce_numeric(match_row.get(f'Set {i}_b'))
-                                if score > 0:
-                                    set_scores.append(score)
-                        media = sum(set_scores) / len(set_scores) if set_scores else 0.0
+
+                            side = 'a' if athlete_a_key == row_key else 'b'
+                            played_sets = _sets_played_by_set_points(match_row)
+                            if played_sets:
+                                side_index = 0 if side == 'a' else 1
+                                athlete_scores = [
+                                    scores[side_index] for scores in played_sets
+                                ]
+                                match_averages.append(
+                                    sum(athlete_scores) / len(athlete_scores)
+                                )
+
+                        media = (
+                            sum(match_averages) / len(match_averages)
+                            if match_averages else 0.0
+                        )
 
                     sheet_df.loc[sheet_df['Atleta'] == row['Atleta'], 'Média dos Combates'] = round(float(media), 2)
 
