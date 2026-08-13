@@ -278,6 +278,20 @@ Define a pontuação individual usada no CSV final. A busca considera:
 - ranking final;
 - quantidade de atletas da categoria.
 
+## Cálculo da média dos combates
+
+Para categorias que não começam com `C`, a média é calculada em duas etapas:
+
+1. para cada `Match`, identifica-se quantos sets foram efetivamente disputados usando a mesma regra de comparação set a set e de pontuação do vencedor;
+2. somam-se as pontuações do atleta em todos esses sets, inclusive quando algum set válido tem pontuação `0`, e divide-se pela quantidade de sets disputados no combate;
+3. calcula-se a média aritmética das médias dos três `Matches` do atleta.
+
+Células vazias representam sets não disputados. O valor `0` preenchido representa um set válido e entra no cálculo.
+
+Dessa forma, cada combate tem o mesmo peso, mesmo quando possui quantidades diferentes de sets — por exemplo, 3, 4 ou 5 sets.
+
+Para categorias iniciadas com `C`, permanece o cálculo baseado na média dos totais de cada combate.
+
 ## Ranking das médias e empates
 
 A classificação das médias dentro de cada grupo deve usar ranking competitivo, sem desempate pelo nome.

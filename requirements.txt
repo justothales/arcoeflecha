@@ -1,6 +1,9 @@
-streamlit
-pandas
-openpyxl
-fpdf
-Pillow
-# xlrd é opcional apenas se você precisar ler arquivos .xls antigos
+# Interface web
+streamlit>=1.36,<2.0
+
+# Manipulação de dados e geração/leitura de planilhas
+pandas>=2.0,<3.0
+openpyxl>=3.1,<4.0
+
+# Geração dos PDFs de impressão
+fpdf>=1.7.2,<2.0
